@@ -499,9 +499,9 @@ body {
 
 .scenario-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 16px;
-  max-width: 960px;
+  max-width: min(960px, 100%);
 }
 
 .scenario-card {
@@ -1484,7 +1484,7 @@ body {
   background: rgba(11, 13, 20, 0.90);
   border-radius: 12px;
   border: 1px solid var(--border-subtle);
-  max-width: 1000px;
+  max-width: min(1000px, calc(100vw - 32px));
   width: 100%;
 }
 
@@ -1960,6 +1960,7 @@ body {
 
 .final-route-card {
   width: min(340px, 42vw);
+  max-width: 90vw;
   background: rgba(7, 8, 12, 0.92);
   border: 1px solid rgba(52, 211, 153, 0.35);
   border-radius: 10px;
@@ -1974,6 +1975,7 @@ body {
 /* Alternate route detail card — same shape as final-route-card */
 .alternate-route-card {
   width: min(340px, 42vw);
+  max-width: 90vw;
   background: rgba(7, 8, 12, 0.92);
   border: 1px solid rgba(75, 127, 224, 0.35);
   border-radius: 10px;
@@ -2047,5 +2049,81 @@ body {
 @media (max-width: 1400px) {
   .sidebar-resize-handle {
     width: 8px;
+  }
+}
+
+/* ── Responsive breakpoints ──────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .app-sidebar {
+    min-width: 280px !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-content-row {
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .app-sidebar {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    max-height: 45vh;
+    flex-shrink: 0;
+  }
+
+  .app-map-center {
+    min-height: 40vh;
+    flex: none;
+    height: 50vh;
+  }
+
+  .sidebar-resize-handle {
+    display: none;
+  }
+
+  .scenario-overlay {
+    padding: 16px;
+    justify-content: flex-start;
+    overflow-y: auto;
+  }
+
+  .scenario-selector {
+    padding: 16px;
+    border-radius: 8px;
+  }
+}
+
+@media (max-width: 600px) {
+  .override-comparison {
+    grid-template-columns: 1fr;
+  }
+
+  .override-side:first-child {
+    border-right: none;
+    border-bottom: 1px solid var(--border-faint);
+  }
+
+  .scenario-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .scenario-card {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 500px) {
+  .manual-order-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .scenario-selector {
+    padding: 12px;
   }
 }
