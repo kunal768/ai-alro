@@ -1,0 +1,473 @@
+#!/usr/bin/env python3
+"""
+Reasoner Agent + Resolution Layer integration test.
+
+Runs three pre-seeded scenarios designed to trigger the three resolution states:
+  Scenario A — Convergence   (clear winner, both agents agree)
+  Scenario B — Qualification (tight time window + borderline ranking)
+  Scenario C — Override      (fairness / redlining-by-proxy concern)
+
+Requires:
+  - Reasoner Agent running on :8004  (bash run_dev.sh from backend/)
+  - A real LLM provider configured in .env  OR  LLM_PROVIDER=ollama
+
+Usage:
+  cd backend
+  bash run_dev.sh          # terminal 1 — starts Reasoner Agent
+  python test_reasoner.py  # terminal 2
+"""
+import asyncio
+import json
+import sys
+import time
+
+import httpx
+
+REASONER_URL = "http://localhost:8004"
+
+
+# ── Scenario payloads ──────────────────────────────────────────────────────────
+# Each payload mirrors a realistic state the system must handle.
+# Feature vectors and optimizer outputs are pre-seeded; in production these
+# are produced by the Intake Agent and Optimizer Agent respectively.
+
+# Shared driver/warehouse sub-objects reused across scenarios
+_DRIVERS = {
+    "DRV-001": {
+        "driver_id": "DRV-001", "name": "Marcus Webb", "vehicle_type": "van",
+        "current_lat": 51.5235, "current_lon": -0.0755,
+        "distance_to_nearest_wh_km": 3.8, "estimated_pickup_minutes": 24.0,
+        "current_load_kg": 85.0, "max_load_kg": 500.0, "available_capacity_kg": 415.0,
+        "active_deliveries": 2, "rating": 4.8,
+        "zone_familiarity": ["central", "east", "north"],
+    },
+    "DRV-004": {
+        "driver_id": "DRV-004", "name": "Priya Sharma", "vehicle_type": "motorbike",
+        "current_lat": 51.5054, "current_lon": -0.0235,
+        "distance_to_nearest_wh_km": 2.1, "estimated_pickup_minutes": 19.0,
+        "current_load_kg": 12.0, "max_load_kg": 50.0, "available_capacity_kg": 38.0,
+        "active_deliveries": 1, "rating": 4.7,
+        "zone_familiarity": ["east", "central"],
+    },
+    "DRV-005": {
+        "driver_id": "DRV-005", "name": "Tommy Fraser", "vehicle_type": "van",
+        "current_lat": 51.4927, "current_lon": -0.2235,
+        "distance_to_nearest_wh_km": 5.7, "estimated_pickup_minutes": 28.0,
+        "current_load_kg": 0.0, "max_load_kg": 800.0, "available_capacity_kg": 800.0,
+        "active_deliveries": 0, "rating": 4.5,
+        "zone_familiarity": ["west", "central", "outer_west"],
+    },
+    "DRV-007": {
+        "driver_id": "DRV-007", "name": "Dan Okafor", "vehicle_type": "van",
+        "current_lat": 51.4614, "current_lon": -0.0210,
+        "distance_to_nearest_wh_km": 2.8, "estimated_pickup_minutes": 16.0,
+        "current_load_kg": 155.0, "max_load_kg": 500.0, "available_capacity_kg": 345.0,
+        "active_deliveries": 2, "rating": 4.4,
+        "zone_familiarity": ["south", "east", "outer_east"],
+    },
+    "DRV-009": {
+        "driver_id": "DRV-009", "name": "Raj Patel", "vehicle_type": "van",
+        "current_lat": 51.5362, "current_lon": 0.0798,
+        "distance_to_nearest_wh_km": 5.6, "estimated_pickup_minutes": 19.0,
+        "current_load_kg": 320.0, "max_load_kg": 600.0, "available_capacity_kg": 280.0,
+        "active_deliveries": 4, "rating": 4.3,
+        "zone_familiarity": ["east", "outer_east", "north"],
+    },
+}
+
+_WAREHOUSES = {
+    "WH-E01": {
+        "warehouse_id": "WH-E01", "name": "Stratford Logistics Hub",
+        "lat": 51.5416, "lon": -0.0001, "stock_level": 847, "stock_confirmed": True,
+        # distance set per scenario below
+    },
+    "WH-SE01": {
+        "warehouse_id": "WH-SE01", "name": "Greenwich Warehouse",
+        "lat": 51.4826, "lon": 0.0077, "stock_level": 312, "stock_confirmed": True,
+    },
+    "WH-W01": {
+        "warehouse_id": "WH-W01", "name": "Park Royal Depot",
+        "lat": 51.5302, "lon": -0.2805, "stock_level": 734, "stock_confirmed": True,
+    },
+}
+
+
+def _wh(wh_id: str, dist: float) -> dict:
+    return {**_WAREHOUSES[wh_id], "distance_to_destination_km": dist}
+
+
+# ── Scenario A — Central London, standard delivery (expected: CONVERGENCE) ─────
+SCENARIO_A = {
+    "label": "Scenario A — Central London, standard delivery  [expected: CONVERGENCE]",
+    "payload": {
+        "feature_vector": {
+            "order_id": "TEST-A001",
+            "destination_lat": 51.5155, "destination_lon": -0.0922,
+            "destination_zone_id": "central",
+            "order_value": 1200.0, "weight_kg": 35.0,
+            "time_window_hours": 4.0,
+            "cargo_type": "general", "priority": "standard",
+            "warehouse_options": [
+                _wh("WH-E01", 7.0), _wh("WH-SE01", 7.8), _wh("WH-W01", 13.1),
+            ],
+            "available_drivers": [
+                _DRIVERS["DRV-001"], _DRIVERS["DRV-007"], _DRIVERS["DRV-005"],
+            ],
+            "zone_profile": {
+                "zone_id": "central", "name": "Central London",
+                "delivery_success_rate": 0.96, "avg_transit_hours": 1.4,
+                "demand_pressure": 0.89, "active_routes": 34,
+                "complaint_rate": 0.03,
+                "last_30_days_total": 1842, "last_30_days_successful": 1768,
+            },
+            "enrichment_timestamp": "2026-05-05T09:00:00Z",
+            "erp_latency_ms": 18.4,
+        },
+        "optimizer_output": {
+            "order_id": "TEST-A001",
+            "weights_used": {
+                "w1_timeliness": 0.40, "w2_cost_efficiency": 0.35,
+                "w3_warehouse_proximity": 0.25,
+            },
+            "ranked_options": [
+                {   # Clear winner — large gap to rank 2, driver knows central
+                    "option_id": "WH-E01::DRV-001",
+                    "warehouse_id": "WH-E01", "driver_id": "DRV-001",
+                    "timeliness_score": 0.92, "cost_efficiency_score": 0.81,
+                    "warehouse_proximity_score": 0.89, "zone_risk_penalty": 0.020,
+                    "composite_score": 0.855,
+                    "estimated_cost_gbp": 38.50, "estimated_duration_hours": 1.85,
+                },
+                {
+                    "option_id": "WH-SE01::DRV-007",
+                    "warehouse_id": "WH-SE01", "driver_id": "DRV-007",
+                    "timeliness_score": 0.88, "cost_efficiency_score": 0.71,
+                    "warehouse_proximity_score": 0.85, "zone_risk_penalty": 0.020,
+                    "composite_score": 0.768,
+                    "estimated_cost_gbp": 44.20, "estimated_duration_hours": 1.73,
+                },
+                {
+                    "option_id": "WH-W01::DRV-005",
+                    "warehouse_id": "WH-W01", "driver_id": "DRV-005",
+                    "timeliness_score": 0.83, "cost_efficiency_score": 0.65,
+                    "warehouse_proximity_score": 0.72, "zone_risk_penalty": 0.020,
+                    "composite_score": 0.681,
+                    "estimated_cost_gbp": 52.80, "estimated_duration_hours": 1.87,
+                },
+            ],
+            "top_choice": {
+                "option_id": "WH-E01::DRV-001",
+                "warehouse_id": "WH-E01", "driver_id": "DRV-001",
+                "timeliness_score": 0.92, "cost_efficiency_score": 0.81,
+                "warehouse_proximity_score": 0.89, "zone_risk_penalty": 0.020,
+                "composite_score": 0.855,
+                "estimated_cost_gbp": 38.50, "estimated_duration_hours": 1.85,
+            },
+        },
+    },
+}
+
+# ── Scenario B — East London, urgent fragile (expected: QUALIFICATION) ─────────
+# Key stresses: composite gap = 0.032 (borderline); estimated_duration = 2.00h
+# which equals the time window exactly; Rank 2 is a motorbike carrying fragile cargo.
+SCENARIO_B = {
+    "label": "Scenario B — East London, urgent fragile goods  [expected: QUALIFICATION]",
+    "payload": {
+        "feature_vector": {
+            "order_id": "TEST-B002",
+            "destination_lat": 51.5150, "destination_lon": 0.0350,
+            "destination_zone_id": "east",
+            "order_value": 4800.0, "weight_kg": 22.0,
+            "time_window_hours": 2.0,
+            "cargo_type": "fragile", "priority": "urgent",
+            "warehouse_options": [
+                _wh("WH-E01", 3.8), _wh("WH-SE01", 4.1),
+            ],
+            "available_drivers": [
+                _DRIVERS["DRV-001"], _DRIVERS["DRV-004"], _DRIVERS["DRV-007"],
+            ],
+            "zone_profile": {
+                "zone_id": "east", "name": "East London",
+                "delivery_success_rate": 0.91, "avg_transit_hours": 1.6,
+                "demand_pressure": 0.78, "active_routes": 27,
+                "complaint_rate": 0.07,
+                "last_30_days_total": 1567, "last_30_days_successful": 1426,
+            },
+            "enrichment_timestamp": "2026-05-05T09:00:00Z",
+            "erp_latency_ms": 9.1,
+        },
+        "optimizer_output": {
+            "order_id": "TEST-B002",
+            "weights_used": {
+                "w1_timeliness": 0.40, "w2_cost_efficiency": 0.35,
+                "w3_warehouse_proximity": 0.25,
+            },
+            "ranked_options": [
+                {   # Wins on timeliness/proximity; but duration = 2.00h = window edge
+                    "option_id": "WH-E01::DRV-001",
+                    "warehouse_id": "WH-E01", "driver_id": "DRV-001",
+                    "timeliness_score": 0.90, "cost_efficiency_score": 0.77,
+                    "warehouse_proximity_score": 0.94, "zone_risk_penalty": 0.045,
+                    "composite_score": 0.823,
+                    "estimated_cost_gbp": 29.50, "estimated_duration_hours": 2.00,
+                },
+                {   # Gap = 0.032 — borderline. Motorbike + fragile = risk.
+                    "option_id": "WH-E01::DRV-004",
+                    "warehouse_id": "WH-E01", "driver_id": "DRV-004",
+                    "timeliness_score": 0.95, "cost_efficiency_score": 0.72,
+                    "warehouse_proximity_score": 0.94, "zone_risk_penalty": 0.045,
+                    "composite_score": 0.791,
+                    "estimated_cost_gbp": 26.80, "estimated_duration_hours": 1.91,
+                },
+                {
+                    "option_id": "WH-SE01::DRV-007",
+                    "warehouse_id": "WH-SE01", "driver_id": "DRV-007",
+                    "timeliness_score": 0.91, "cost_efficiency_score": 0.68,
+                    "warehouse_proximity_score": 0.93, "zone_risk_penalty": 0.045,
+                    "composite_score": 0.741,
+                    "estimated_cost_gbp": 28.90, "estimated_duration_hours": 1.91,
+                },
+            ],
+            "top_choice": {
+                "option_id": "WH-E01::DRV-001",
+                "warehouse_id": "WH-E01", "driver_id": "DRV-001",
+                "timeliness_score": 0.90, "cost_efficiency_score": 0.77,
+                "warehouse_proximity_score": 0.94, "zone_risk_penalty": 0.045,
+                "composite_score": 0.823,
+                "estimated_cost_gbp": 29.50, "estimated_duration_hours": 2.00,
+            },
+        },
+    },
+}
+
+# ── Scenario C — Outer East, standard delivery (expected: OVERRIDE) ────────────
+# Key stresses: zone 83% success / 14% complaint (redlining-by-proxy concern);
+# composite gap = 0.023 (very borderline); Rank 1 driver has NO outer_east
+# familiarity; Rank 2 driver knows outer_east.
+SCENARIO_C = {
+    "label": "Scenario C — Outer East, standard delivery  [expected: OVERRIDE / fairness]",
+    "payload": {
+        "feature_vector": {
+            "order_id": "TEST-C003",
+            "destination_lat": 51.5640, "destination_lon": 0.1960,
+            "destination_zone_id": "outer_east",
+            "order_value": 650.0, "weight_kg": 60.0,
+            "time_window_hours": 6.0,
+            "cargo_type": "general", "priority": "standard",
+            "warehouse_options": [
+                _wh("WH-E01", 13.8), _wh("WH-SE01", 15.9),
+            ],
+            "available_drivers": [
+                {**_DRIVERS["DRV-001"], "estimated_pickup_minutes": 20.0},
+                {**_DRIVERS["DRV-009"], "estimated_pickup_minutes": 19.0},
+                {**_DRIVERS["DRV-007"], "estimated_pickup_minutes": 16.0},
+            ],
+            "zone_profile": {
+                "zone_id": "outer_east", "name": "Outer East (Essex borders)",
+                "delivery_success_rate": 0.83, "avg_transit_hours": 2.8,
+                "demand_pressure": 0.44, "active_routes": 11,
+                "complaint_rate": 0.14,
+                "last_30_days_total": 612, "last_30_days_successful": 508,
+            },
+            "enrichment_timestamp": "2026-05-05T09:00:00Z",
+            "erp_latency_ms": 7.3,
+        },
+        "optimizer_output": {
+            "order_id": "TEST-C003",
+            "weights_used": {
+                "w1_timeliness": 0.40, "w2_cost_efficiency": 0.35,
+                "w3_warehouse_proximity": 0.25,
+            },
+            "ranked_options": [
+                {   # Wins on cost; driver UNFAMILIAR with outer_east
+                    "option_id": "WH-E01::DRV-001",
+                    "warehouse_id": "WH-E01", "driver_id": "DRV-001",
+                    "timeliness_score": 0.94, "cost_efficiency_score": 0.82,
+                    "warehouse_proximity_score": 0.58, "zone_risk_penalty": 0.085,
+                    "composite_score": 0.712,
+                    "estimated_cost_gbp": 74.50, "estimated_duration_hours": 3.13,
+                },
+                {   # Gap = 0.023 — very borderline; driver KNOWS outer_east
+                    "option_id": "WH-E01::DRV-009",
+                    "warehouse_id": "WH-E01", "driver_id": "DRV-009",
+                    "timeliness_score": 0.94, "cost_efficiency_score": 0.75,
+                    "warehouse_proximity_score": 0.58, "zone_risk_penalty": 0.085,
+                    "composite_score": 0.689,
+                    "estimated_cost_gbp": 81.30, "estimated_duration_hours": 3.12,
+                },
+                {   # Driver also knows outer_east
+                    "option_id": "WH-SE01::DRV-007",
+                    "warehouse_id": "WH-SE01", "driver_id": "DRV-007",
+                    "timeliness_score": 0.95, "cost_efficiency_score": 0.65,
+                    "warehouse_proximity_score": 0.52, "zone_risk_penalty": 0.085,
+                    "composite_score": 0.655,
+                    "estimated_cost_gbp": 89.70, "estimated_duration_hours": 3.07,
+                },
+            ],
+            "top_choice": {
+                "option_id": "WH-E01::DRV-001",
+                "warehouse_id": "WH-E01", "driver_id": "DRV-001",
+                "timeliness_score": 0.94, "cost_efficiency_score": 0.82,
+                "warehouse_proximity_score": 0.58, "zone_risk_penalty": 0.085,
+                "composite_score": 0.712,
+                "estimated_cost_gbp": 74.50, "estimated_duration_hours": 3.13,
+            },
+        },
+    },
+}
+
+SCENARIOS = [SCENARIO_A, SCENARIO_B, SCENARIO_C]
+
+
+# ── SSE stream reader ──────────────────────────────────────────────────────────
+
+async def stream_reason(payload: dict):
+    """Consume the /reason SSE stream and yield (event_type, data_dict) tuples."""
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        async with client.stream(
+            "POST", f"{REASONER_URL}/reason", json=payload
+        ) as response:
+            response.raise_for_status()
+            current_event: str | None = None
+            async for line in response.aiter_lines():
+                if line.startswith("event: "):
+                    current_event = line[7:].strip()
+                elif line.startswith("data: ") and current_event:
+                    try:
+                        data = json.loads(line[6:])
+                    except json.JSONDecodeError:
+                        data = {"raw": line[6:]}
+                    yield current_event, data
+                    if current_event == "done":
+                        return
+                    current_event = None
+
+
+# ── Scenario runner ────────────────────────────────────────────────────────────
+
+async def run_scenario(scenario: dict) -> None:
+    label = scenario["label"]
+    payload = scenario["payload"]
+    sep = "═" * 74
+
+    print(f"\n{sep}")
+    print(f"  {label}")
+    print(sep)
+
+    fv = payload["feature_vector"]
+    opt = payload["optimizer_output"]
+    print(f"  Order: {fv['order_id']}  │  {fv['cargo_type']}  │  "
+          f"{fv['weight_kg']} kg  │  £{fv['order_value']:,.0f}  │  "
+          f"priority: {fv['priority']}  │  window: {fv['time_window_hours']}h")
+    print(f"  Zone : {fv['destination_zone_id']} — "
+          f"success {fv['zone_profile']['delivery_success_rate']*100:.0f}%  │  "
+          f"complaints {fv['zone_profile']['complaint_rate']*100:.0f}%")
+    print(f"  Optimizer top choice: {opt['top_choice']['option_id']}  "
+          f"(composite {opt['top_choice']['composite_score']:.3f})")
+    print()
+
+    # Stream reasoning
+    print("  ── Reasoner deliberation (streaming) ──────────────────────────────")
+    reasoning_text = ""
+    resolution_data = None
+    conclusion_data = None
+    t_start = time.perf_counter()
+
+    try:
+        async for event_type, data in stream_reason(payload):
+            if event_type == "token":
+                chunk = data.get("text", "")
+                reasoning_text += chunk
+                print(chunk, end="", flush=True)
+
+            elif event_type == "conclusion":
+                conclusion_data = data
+                print()  # newline after streaming text
+
+            elif event_type == "resolution":
+                resolution_data = data
+
+            elif event_type == "error":
+                print(f"\n  ⚠ ERROR: {data.get('message')}")
+                print(f"  Fallback: {data.get('fallback')}")
+
+            elif event_type == "done":
+                break
+
+    except httpx.HTTPStatusError as exc:
+        print(f"\n  HTTP {exc.response.status_code}: {exc.response.text}")
+        return
+    except Exception as exc:
+        print(f"\n  REQUEST FAILED: {exc}")
+        return
+
+    elapsed = time.perf_counter() - t_start
+
+    # Summary
+    if conclusion_data:
+        print()
+        print(f"  ── Conclusion ─────────────────────────────────────────────────────")
+        print(f"  DECISION          : {conclusion_data.get('decision', '?').upper()}")
+        print(f"  RECOMMENDED OPTION: {conclusion_data.get('recommended_option', '?')}")
+        flags = conclusion_data.get("flags", [])
+        print(f"  FLAGS             : {', '.join(flags) if flags else 'NONE'}")
+        or_ = conclusion_data.get("override_reason")
+        if or_:
+            print(f"  OVERRIDE REASON   : {or_}")
+        parse_ok = conclusion_data.get("parse_ok", True)
+        if not parse_ok:
+            print("  ⚠ conclusion block not found — parser used fallback heuristics")
+
+    if resolution_data:
+        state = resolution_data.get("state", "?").upper()
+        state_icon = {"CONVERGENCE": "✓", "QUALIFICATION": "⚠", "OVERRIDE": "✗"}.get(state, "·")
+        print()
+        print(f"  ── Resolution: {state_icon} {state} ──────────────────────────────────────")
+        print(f"  Optimizer choice : {resolution_data.get('optimizer_choice')}")
+        print(f"  Reasoner choice  : {resolution_data.get('reasoner_choice')}")
+        print(f"  Final decision   : {resolution_data.get('final_option_id')}")
+        print(f"  Explanation      : {resolution_data.get('explanation')}")
+
+    print()
+    print(f"  Elapsed: {elapsed:.1f}s  │  Reasoning length: {len(reasoning_text)} chars")
+
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+
+async def main() -> None:
+    print("╔══════════════════════════════════════════════════════════════════════════╗")
+    print("║       Reasoner Agent + Resolution Layer — Integration Test               ║")
+    print("╚══════════════════════════════════════════════════════════════════════════╝")
+
+    # Health check
+    try:
+        r = httpx.get(f"{REASONER_URL}/health", timeout=3.0)
+        r.raise_for_status()
+        h = r.json()
+        print(f"\n  Reasoner Agent: ✓ OK  │  provider={h['llm_provider']}  │  model={h['llm_model']}")
+    except Exception as exc:
+        print(f"\n  Reasoner Agent NOT reachable at {REASONER_URL}: {exc}")
+        print("  Start services with: bash run_dev.sh  (from the backend/ directory)")
+        sys.exit(1)
+
+    # Select scenarios
+    if len(sys.argv) > 1:
+        idx = [int(a) - 1 for a in sys.argv[1:] if a.isdigit()]
+        selected = [SCENARIOS[i] for i in idx if 0 <= i < len(SCENARIOS)]
+    else:
+        selected = SCENARIOS
+
+    for scenario in selected:
+        await run_scenario(scenario)
+
+    print(f"\n{'═'*74}")
+    print("  All scenarios complete.")
+    print()
+    print("  Tip: run a single scenario with:")
+    print("    python test_reasoner.py 1   # Convergence")
+    print("    python test_reasoner.py 2   # Qualification")
+    print("    python test_reasoner.py 3   # Override")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

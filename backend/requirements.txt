@@ -1,0 +1,24 @@
+# Core
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+
+# HTTP client (inter-agent calls)
+httpx==0.28.1
+
+# Environment
+python-dotenv==1.0.1
+
+# RL / numeric
+numpy>=1.26
+
+# LLM
+anthropic==0.40.0
+openai==1.57.4          # also used as the Ollama-compatible client
+
+# Orchestration
+langgraph==0.2.60
+
+# Utilities
+python-multipart==0.0.20
+sse-starlette==2.1.3
