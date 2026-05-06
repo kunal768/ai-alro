@@ -96,6 +96,10 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:80"
+    environment:
+      - INTAKE_HOST=intake_agent
+      - OPTIMIZER_HOST=optimizer_agent
+      - REASONER_HOST=reasoner_agent
     depends_on:
       reasoner_agent:
         condition: service_healthy
