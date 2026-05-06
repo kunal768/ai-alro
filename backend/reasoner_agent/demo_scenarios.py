@@ -3,7 +3,105 @@ Pre-seeded demonstration scenarios for the /demo/{scenario_id} endpoint.
 
 Geography: San Francisco Bay Area.
 Scenario A → convergence, Scenario B → qualification, Scenario C → override.
+
+Optimizer outputs are computed at import time using the same scoring logic as
+the Optimizer Agent — no hardcoded scores.
 """
+from shared.utils import haversine, classify_zone, estimate_road_speed_kmh
+
+# ── Scoring constants (must mirror optimizer_agent/main.py) ───────────────────
+
+_MAX_DIST_KM        = 60.0
+_MAX_DRIVER_DIST_KM = 40.0
+_COST_CEILING       = 400.0
+_LOADING_MINUTES    = 12.0
+
+_WEIGHTS: dict[str, dict] = {
+    "critical": {"w1_timeliness": 0.45, "w2_cost_efficiency": 0.15, "w3_proximity": 0.40},
+    "urgent":   {"w1_timeliness": 0.35, "w2_cost_efficiency": 0.20, "w3_proximity": 0.45},
+    "standard": {"w1_timeliness": 0.30, "w2_cost_efficiency": 0.25, "w3_proximity": 0.45},
+}
+
+
+def _score_option(wh: dict, drv: dict, fv: dict, weights: dict) -> dict:
+    w1 = weights["w1_timeliness"]
+    w2 = weights["w2_cost_efficiency"]
+    w3 = weights["w3_proximity"]
+    zone = fv["zone_profile"]
+
+    drv_to_wh_km = haversine(drv["current_lat"], drv["current_lon"], wh["lat"], wh["lon"])
+    drv_zone  = classify_zone(drv["current_lat"], drv["current_lon"])
+    drv_speed = estimate_road_speed_kmh(drv_zone)
+    pickup_minutes = (drv_to_wh_km / drv_speed) * 60.0 + _LOADING_MINUTES
+
+    dest_zone_speed = estimate_road_speed_kmh(zone["zone_id"])
+    wh_to_dest_h = wh["distance_to_destination_km"] / dest_zone_speed
+
+    pickup_h = pickup_minutes / 60.0
+    total_h  = pickup_h + wh_to_dest_h
+    margin   = fv["time_window_hours"] - total_h
+    timeliness = max(0.0, min(1.0, 0.5 + margin / fv["time_window_hours"]))
+
+    est_cost = (
+        15.0
+        + wh["distance_to_destination_km"] * 2.20
+        + drv_to_wh_km * 1.80
+        + fv["weight_kg"] * 0.25
+    )
+    cost_eff = max(0.0, min(1.0, 1.0 - est_cost / _COST_CEILING))
+
+    wh_proximity  = max(0.0, min(1.0, 1.0 - wh["distance_to_destination_km"] / _MAX_DIST_KM))
+    drv_proximity = max(0.0, min(1.0, 1.0 - drv_to_wh_km / _MAX_DRIVER_DIST_KM))
+    proximity_score = (wh_proximity + drv_proximity) / 2.0
+
+    zone_risk = min(
+        0.30,
+        (1.0 - zone["delivery_success_rate"]) * 0.60
+        + zone.get("complaint_rate", 0.0) * 0.25,
+    )
+
+    composite = timeliness * w1 + cost_eff * w2 + proximity_score * w3 - zone_risk
+
+    return {
+        "option_id":                f"{wh['warehouse_id']}::{drv['driver_id']}",
+        "warehouse_id":             wh["warehouse_id"],
+        "driver_id":                drv["driver_id"],
+        "timeliness_score":         round(timeliness, 3),
+        "cost_efficiency_score":    round(cost_eff, 3),
+        "proximity_score":          round(proximity_score, 3),
+        "zone_risk_penalty":        round(zone_risk, 3),
+        "composite_score":          round(composite, 3),
+        "estimated_cost_gbp":       round(est_cost, 2),
+        "estimated_duration_hours": round(total_h, 2),
+    }
+
+
+def _compute_opt(fv: dict) -> dict:
+    priority = fv.get("priority", "standard")
+    weights  = _WEIGHTS.get(priority, _WEIGHTS["standard"])
+    weight_kg = fv.get("weight_kg", 0.0)
+
+    stocked     = [w for w in fv.get("warehouse_options", []) if w.get("stock_confirmed")]
+    stocked_top = sorted(stocked, key=lambda w: w["distance_to_destination_km"])[:2]
+
+    capable     = [d for d in fv.get("available_drivers", []) if d.get("available_capacity_kg", 0) >= weight_kg]
+    drivers_top = sorted(capable, key=lambda d: d["estimated_pickup_minutes"])[:4]
+
+    options = []
+    for wh in stocked_top:
+        for drv in drivers_top:
+            options.append(_score_option(wh, drv, fv, weights))
+
+    options.sort(key=lambda o: o["composite_score"], reverse=True)
+    top4 = options[:4]
+
+    return {
+        "order_id":       fv.get("order_id", ""),
+        "weights_used":   weights,
+        "ranked_options": top4,
+        "top_choice":     top4[0],
+    }
+
 
 # ── Shared sub-objects ─────────────────────────────────────────────────────────
 
@@ -88,43 +186,8 @@ _SCENARIO_A_FV: dict = {
     "erp_latency_ms": 15.2,
 }
 
-_SCENARIO_A_OPT: dict = {
-    "order_id": "DEMO-A001",
-    "weights_used": {"w1_timeliness": 0.40, "w2_cost_efficiency": 0.35, "w3_warehouse_proximity": 0.25},
-    "ranked_options": [
-        {
-            "option_id": "WH-SF01::DRV-001", "warehouse_id": "WH-SF01", "driver_id": "DRV-001",
-            "timeliness_score": 0.93, "cost_efficiency_score": 0.82,
-            "warehouse_proximity_score": 0.92, "zone_risk_penalty": 0.018,
-            "composite_score": 0.879,
-            "estimated_cost_gbp": 42.80, "estimated_duration_hours": 1.72,
-        },
-        {
-            "option_id": "WH-SSF01::DRV-007", "warehouse_id": "WH-SSF01", "driver_id": "DRV-007",
-            "timeliness_score": 0.86, "cost_efficiency_score": 0.74,
-            "warehouse_proximity_score": 0.78, "zone_risk_penalty": 0.018,
-            "composite_score": 0.785,
-            "estimated_cost_gbp": 54.20, "estimated_duration_hours": 1.95,
-        },
-        {
-            "option_id": "WH-OAK01::DRV-005", "warehouse_id": "WH-OAK01", "driver_id": "DRV-005",
-            "timeliness_score": 0.80, "cost_efficiency_score": 0.64,
-            "warehouse_proximity_score": 0.61, "zone_risk_penalty": 0.018,
-            "composite_score": 0.680,
-            "estimated_cost_gbp": 68.50, "estimated_duration_hours": 2.14,
-        },
-    ],
-    "top_choice": {
-        "option_id": "WH-SF01::DRV-001", "warehouse_id": "WH-SF01", "driver_id": "DRV-001",
-        "timeliness_score": 0.93, "cost_efficiency_score": 0.82,
-        "warehouse_proximity_score": 0.92, "zone_risk_penalty": 0.018,
-        "composite_score": 0.879,
-        "estimated_cost_gbp": 42.80, "estimated_duration_hours": 1.72,
-    },
-}
-
 # ── Scenario B — East Bay, urgent fragile (expected: QUALIFICATION) ────────────
-# Stresses: composite gap = 0.031 (borderline); estimated duration = 1.95h ≈ time window;
+# Stresses: composite gap ≈ borderline; estimated duration ≈ time window;
 # Rank 2 is a motorbike carrying fragile goods.
 
 _SCENARIO_B_FV: dict = {
@@ -147,44 +210,8 @@ _SCENARIO_B_FV: dict = {
     "erp_latency_ms": 8.7,
 }
 
-_SCENARIO_B_OPT: dict = {
-    "order_id": "DEMO-B002",
-    "weights_used": {"w1_timeliness": 0.40, "w2_cost_efficiency": 0.35, "w3_warehouse_proximity": 0.25},
-    "ranked_options": [
-        {
-            "option_id": "WH-OAK01::DRV-009", "warehouse_id": "WH-OAK01", "driver_id": "DRV-009",
-            "timeliness_score": 0.88, "cost_efficiency_score": 0.75,
-            "warehouse_proximity_score": 0.95, "zone_risk_penalty": 0.040,
-            "composite_score": 0.820,
-            "estimated_cost_gbp": 32.10, "estimated_duration_hours": 1.95,
-        },
-        {
-            # Gap = 0.031 — borderline. Motorbike + fragile = risk.
-            "option_id": "WH-OAK01::DRV-004", "warehouse_id": "WH-OAK01", "driver_id": "DRV-004",
-            "timeliness_score": 0.94, "cost_efficiency_score": 0.70,
-            "warehouse_proximity_score": 0.95, "zone_risk_penalty": 0.040,
-            "composite_score": 0.789,
-            "estimated_cost_gbp": 29.40, "estimated_duration_hours": 1.88,
-        },
-        {
-            "option_id": "WH-SF01::DRV-001", "warehouse_id": "WH-SF01", "driver_id": "DRV-001",
-            "timeliness_score": 0.85, "cost_efficiency_score": 0.63,
-            "warehouse_proximity_score": 0.68, "zone_risk_penalty": 0.040,
-            "composite_score": 0.721,
-            "estimated_cost_gbp": 48.90, "estimated_duration_hours": 2.08,
-        },
-    ],
-    "top_choice": {
-        "option_id": "WH-OAK01::DRV-009", "warehouse_id": "WH-OAK01", "driver_id": "DRV-009",
-        "timeliness_score": 0.88, "cost_efficiency_score": 0.75,
-        "warehouse_proximity_score": 0.95, "zone_risk_penalty": 0.040,
-        "composite_score": 0.820,
-        "estimated_cost_gbp": 32.10, "estimated_duration_hours": 1.95,
-    },
-}
-
 # ── Scenario C — Hayward / Outer East, standard (expected: OVERRIDE / fairness) ─
-# Stresses: zone 83% success / 14% complaint (redlining concern); gap = 0.022;
+# Stresses: zone 83% success / 14% complaint (redlining concern); gap ≈ borderline;
 # Rank 1 driver has NO outer_east familiarity; Rank 2 driver knows outer_east.
 
 _SCENARIO_C_FV: dict = {
@@ -211,49 +238,12 @@ _SCENARIO_C_FV: dict = {
     "erp_latency_ms": 6.8,
 }
 
-_SCENARIO_C_OPT: dict = {
-    "order_id": "DEMO-C003",
-    "weights_used": {"w1_timeliness": 0.40, "w2_cost_efficiency": 0.35, "w3_warehouse_proximity": 0.25},
-    "ranked_options": [
-        {
-            # Wins on cost; driver UNFAMILIAR with outer_east
-            "option_id": "WH-OAK01::DRV-001", "warehouse_id": "WH-OAK01", "driver_id": "DRV-001",
-            "timeliness_score": 0.95, "cost_efficiency_score": 0.83,
-            "warehouse_proximity_score": 0.62, "zone_risk_penalty": 0.087,
-            "composite_score": 0.718,
-            "estimated_cost_gbp": 78.40, "estimated_duration_hours": 3.18,
-        },
-        {
-            # Gap = 0.022 — very borderline; driver KNOWS outer_east
-            "option_id": "WH-OAK01::DRV-009", "warehouse_id": "WH-OAK01", "driver_id": "DRV-009",
-            "timeliness_score": 0.95, "cost_efficiency_score": 0.76,
-            "warehouse_proximity_score": 0.62, "zone_risk_penalty": 0.087,
-            "composite_score": 0.696,
-            "estimated_cost_gbp": 84.80, "estimated_duration_hours": 3.17,
-        },
-        {
-            "option_id": "WH-SF01::DRV-007", "warehouse_id": "WH-SF01", "driver_id": "DRV-007",
-            "timeliness_score": 0.91, "cost_efficiency_score": 0.62,
-            "warehouse_proximity_score": 0.39, "zone_risk_penalty": 0.087,
-            "composite_score": 0.617,
-            "estimated_cost_gbp": 98.60, "estimated_duration_hours": 3.22,
-        },
-    ],
-    "top_choice": {
-        "option_id": "WH-OAK01::DRV-001", "warehouse_id": "WH-OAK01", "driver_id": "DRV-001",
-        "timeliness_score": 0.95, "cost_efficiency_score": 0.83,
-        "warehouse_proximity_score": 0.62, "zone_risk_penalty": 0.087,
-        "composite_score": 0.718,
-        "estimated_cost_gbp": 78.40, "estimated_duration_hours": 3.18,
-    },
-}
-
 # ── Public registry ────────────────────────────────────────────────────────────
 
 DEMO_SCENARIOS: dict[str, dict] = {
-    "convergence":   {"feature_vector": _SCENARIO_A_FV, "optimizer_output": _SCENARIO_A_OPT},
-    "qualification": {"feature_vector": _SCENARIO_B_FV, "optimizer_output": _SCENARIO_B_OPT},
-    "override":      {"feature_vector": _SCENARIO_C_FV, "optimizer_output": _SCENARIO_C_OPT},
+    "convergence":   {"feature_vector": _SCENARIO_A_FV, "optimizer_output": _compute_opt(_SCENARIO_A_FV)},
+    "qualification": {"feature_vector": _SCENARIO_B_FV, "optimizer_output": _compute_opt(_SCENARIO_B_FV)},
+    "override":      {"feature_vector": _SCENARIO_C_FV, "optimizer_output": _compute_opt(_SCENARIO_C_FV)},
 }
 
 SCENARIO_METADATA: list[dict] = [

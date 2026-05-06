@@ -26,12 +26,8 @@ function explainGap(option, top) {
       msg: () => `Higher zone risk penalty (${(option.zoneRiskPenalty ?? 0).toFixed(2)} vs ${(top.zoneRiskPenalty ?? 0).toFixed(2)}) on this destination.`,
     },
     {
-      delta: (top.driverProximityScore ?? 0) - (option.driverProximityScore ?? 0),
-      msg: (d) => `Driver is farther from the warehouse — ~${(d * 40).toFixed(0)} km additional pickup distance.`,
-    },
-    {
       delta: (top.proximityScore ?? 0) - (option.proximityScore ?? 0),
-      msg: (d) => `Warehouse is ~${(d * 60).toFixed(0)} km farther from the destination.`,
+      msg: (d) => `Lower combined proximity — warehouse or driver roughly ${(d * 50).toFixed(0)} km farther on average.`,
     },
     {
       delta: (top.costEfficiency ?? 0) - (option.costEfficiency ?? 0),
@@ -69,8 +65,7 @@ function buildMapRoutes(fv, opt) {
       cost:            o.estimated_cost_gbp,
       timelinessScore:     o.timeliness_score,
       costEfficiency:      o.cost_efficiency_score,
-      proximityScore:      o.warehouse_proximity_score,
-      driverProximityScore: o.driver_proximity_score ?? 0,
+      proximityScore:      o.proximity_score,
       zoneRiskPenalty:     o.zone_risk_penalty,
     };
   });

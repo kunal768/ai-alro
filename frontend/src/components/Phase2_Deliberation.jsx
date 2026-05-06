@@ -41,7 +41,7 @@ export function OptimizerPanel({ optimizerOutput, featureVector, phase, previewR
   const { ranked_options, top_choice, weights_used } = optimizerOutput;
   const w1 = weights_used?.w1_timeliness ?? 0.4;
   const w2 = weights_used?.w2_cost_efficiency ?? 0.35;
-  const w3 = weights_used?.w3_warehouse_proximity ?? 0.25;
+  const w3 = weights_used?.w3_proximity ?? 0.45;
   const isResolution = phase === 'resolution';
 
   return (
@@ -98,7 +98,7 @@ export function OptimizerPanel({ optimizerOutput, featureVector, phase, previewR
                 {[
                   { label: 'Timeliness', val: opt.timeliness_score, cls: 'timeliness', weighted: opt.timeliness_score * w1 },
                   { label: 'Cost', val: opt.cost_efficiency_score, cls: 'cost', weighted: opt.cost_efficiency_score * w2 },
-                  { label: 'Proximity', val: opt.warehouse_proximity_score, cls: 'proximity', weighted: opt.warehouse_proximity_score * w3 },
+                  { label: 'Proximity', val: opt.proximity_score, cls: 'proximity', weighted: opt.proximity_score * w3 },
                 ].map(item => (
                   <div key={item.label} className="score-row">
                     <div className="score-row-label">{item.label}</div>

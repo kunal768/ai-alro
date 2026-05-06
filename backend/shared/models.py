@@ -84,8 +84,7 @@ class RoutingOption(BaseModel):
     driver_id: str
     timeliness_score: float
     cost_efficiency_score: float
-    warehouse_proximity_score: float
-    driver_proximity_score: float = 0.0
+    proximity_score: float  # combined (warehouse→dest + driver→warehouse) / 2
     zone_risk_penalty: float
     composite_score: float
     estimated_cost_gbp: float

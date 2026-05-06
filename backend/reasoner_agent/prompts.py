@@ -14,9 +14,9 @@ You are the Reasoner Agent in a two-agent logistics decision-making system.
 Your counterpart, the Optimizer Agent, scores and ranks routing options using a \
 weighted reward function:
 
-  reward = (timeliness_score × w1)
+  reward = (timeliness_score  × w1)
          + (cost_efficiency_score × w2)
-         + (warehouse_proximity_score × w3)
+         + (proximity_score  × w3)
          − zone_risk_penalty
 
 The Optimizer is fast, deterministic, and blind to anything its reward function \
@@ -101,9 +101,9 @@ def build_user_prompt(fv: dict, opt: dict) -> str:
     """
     zp = fv["zone_profile"]
     weights = opt["weights_used"]
-    w1 = weights.get("w1_timeliness", 0.40)
-    w2 = weights.get("w2_cost_efficiency", 0.35)
-    w3 = weights.get("w3_warehouse_proximity", 0.25)
+    w1 = weights.get("w1_timeliness", 0.30)
+    w2 = weights.get("w2_cost_efficiency", 0.25)
+    w3 = weights.get("w3_proximity", 0.45)
 
     lines: list[str] = [
         "=== ROUTING SCENARIO ===",
@@ -127,7 +127,7 @@ def build_user_prompt(fv: dict, opt: dict) -> str:
         "",
         "=== OPTIMIZER OUTPUT ===",
         "",
-        f"Reward weights: timeliness={w1}, cost={w2}, proximity={w3}",
+        f"Reward weights: timeliness={w1}, cost={w2}, proximity={w3} (combined warehouse+driver)",
         "",
     ]
 
@@ -150,7 +150,7 @@ def build_user_prompt(fv: dict, opt: dict) -> str:
 
         ts = option["timeliness_score"]
         cs = option["cost_efficiency_score"]
-        ps = option["warehouse_proximity_score"]
+        ps = option["proximity_score"]
         zpen = option["zone_risk_penalty"]
 
         label = "TOP CHOICE — " if i == 1 else ""

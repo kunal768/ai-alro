@@ -4,10 +4,9 @@ Optimizer Agent — Port 8003
 The quantitative voice. Receives a FeatureVector from the Intake Agent and
 scores all viable routing options against the reward function:
 
-    reward = (timeliness_score       × w1)
-           + (cost_efficiency_score  × w2)
-           + (warehouse_proximity    × w3)
-           + (driver_proximity_score × w4)
+    reward = (timeliness_score      × w1)
+           + (cost_efficiency_score × w2)
+           + (proximity_score       × w3)   # combined: (warehouse→dest + driver→warehouse) / 2
            − zone_risk_penalty
 
 Returns a ranked list of RoutingOptions with decomposed scores. Architecture
@@ -26,11 +25,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Reward weights per priority tier — must sum to 1.0 before zone_risk subtraction
+# Reward weights per priority tier — must sum to 1.0 before zone_risk subtraction.
+# w3_proximity covers both warehouse→destination and driver→warehouse (equal split internally).
 _WEIGHTS: dict[str, dict] = {
-    "critical": {"w1_timeliness": 0.45, "w2_cost_efficiency": 0.15, "w3_warehouse_proximity": 0.20, "w4_driver_proximity": 0.20},
-    "urgent":   {"w1_timeliness": 0.35, "w2_cost_efficiency": 0.20, "w3_warehouse_proximity": 0.20, "w4_driver_proximity": 0.25},
-    "standard": {"w1_timeliness": 0.30, "w2_cost_efficiency": 0.25, "w3_warehouse_proximity": 0.20, "w4_driver_proximity": 0.25},
+    "critical": {"w1_timeliness": 0.45, "w2_cost_efficiency": 0.15, "w3_proximity": 0.40},
+    "urgent":   {"w1_timeliness": 0.35, "w2_cost_efficiency": 0.20, "w3_proximity": 0.45},
+    "standard": {"w1_timeliness": 0.30, "w2_cost_efficiency": 0.25, "w3_proximity": 0.45},
 }
 
 # Normalisation constants calibrated for Bay Area logistics
@@ -44,8 +44,7 @@ def _score(wh: dict, drv: dict, fv: dict, weights: dict) -> dict:
     """Score a single (warehouse, driver) routing option."""
     w1 = weights["w1_timeliness"]
     w2 = weights["w2_cost_efficiency"]
-    w3 = weights["w3_warehouse_proximity"]
-    w4 = weights.get("w4_driver_proximity", 0.0)
+    w3 = weights["w3_proximity"]
     zone = fv["zone_profile"]
 
     # Actual driver→warehouse distance for this specific pairing (not nearest-wh proxy)
@@ -57,9 +56,13 @@ def _score(wh: dict, drv: dict, fv: dict, weights: dict) -> dict:
     drv_speed = estimate_road_speed_kmh(drv_zone)
     pickup_minutes = (drv_to_wh_km / drv_speed) * 60.0 + _LOADING_MINUTES
 
+    # Actual warehouse→destination travel time (replaces zone-constant avg_transit_hours)
+    dest_zone_speed = estimate_road_speed_kmh(zone["zone_id"])
+    wh_to_dest_h = wh["distance_to_destination_km"] / dest_zone_speed
+
     # ── Timeliness ────────────────────────────────────────────────────────────
     pickup_h = pickup_minutes / 60.0
-    total_h  = pickup_h + zone["avg_transit_hours"]
+    total_h  = pickup_h + wh_to_dest_h
     margin   = fv["time_window_hours"] - total_h
     # Score = 0.5 when margin = 0 (just makes it), 1.0 when margin = time_window
     timeliness = max(0.0, min(1.0, 0.5 + margin / fv["time_window_hours"]))
@@ -73,11 +76,10 @@ def _score(wh: dict, drv: dict, fv: dict, weights: dict) -> dict:
     )
     cost_eff = max(0.0, min(1.0, 1.0 - est_cost / _COST_CEILING))
 
-    # ── Warehouse proximity (warehouse → destination) ─────────────────────────
-    proximity = max(0.0, min(1.0, 1.0 - wh["distance_to_destination_km"] / _MAX_DIST_KM))
-
-    # ── Driver proximity (driver → this warehouse) ────────────────────────────
-    driver_proximity = max(0.0, min(1.0, 1.0 - drv_to_wh_km / _MAX_DRIVER_DIST_KM))
+    # ── Combined proximity: average of warehouse→dest and driver→warehouse ────
+    wh_proximity  = max(0.0, min(1.0, 1.0 - wh["distance_to_destination_km"] / _MAX_DIST_KM))
+    drv_proximity = max(0.0, min(1.0, 1.0 - drv_to_wh_km / _MAX_DRIVER_DIST_KM))
+    proximity_score = (wh_proximity + drv_proximity) / 2.0
 
     # ── Zone risk penalty ─────────────────────────────────────────────────────
     zone_risk = min(
@@ -86,20 +88,19 @@ def _score(wh: dict, drv: dict, fv: dict, weights: dict) -> dict:
         + zone.get("complaint_rate", 0.0) * 0.25,
     )
 
-    composite = timeliness * w1 + cost_eff * w2 + proximity * w3 + driver_proximity * w4 - zone_risk
+    composite = timeliness * w1 + cost_eff * w2 + proximity_score * w3 - zone_risk
 
     return {
-        "option_id":                  f"{wh['warehouse_id']}::{drv['driver_id']}",
-        "warehouse_id":               wh["warehouse_id"],
-        "driver_id":                  drv["driver_id"],
-        "timeliness_score":           round(timeliness, 3),
-        "cost_efficiency_score":      round(cost_eff, 3),
-        "warehouse_proximity_score":  round(proximity, 3),
-        "driver_proximity_score":     round(driver_proximity, 3),
-        "zone_risk_penalty":          round(zone_risk, 3),
-        "composite_score":            round(composite, 3),
-        "estimated_cost_gbp":         round(est_cost, 2),
-        "estimated_duration_hours":   round(total_h, 2),
+        "option_id":                f"{wh['warehouse_id']}::{drv['driver_id']}",
+        "warehouse_id":             wh["warehouse_id"],
+        "driver_id":                drv["driver_id"],
+        "timeliness_score":         round(timeliness, 3),
+        "cost_efficiency_score":    round(cost_eff, 3),
+        "proximity_score":          round(proximity_score, 3),
+        "zone_risk_penalty":        round(zone_risk, 3),
+        "composite_score":          round(composite, 3),
+        "estimated_cost_gbp":       round(est_cost, 2),
+        "estimated_duration_hours": round(total_h, 2),
     }
 
 
