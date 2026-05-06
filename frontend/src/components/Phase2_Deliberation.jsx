@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 
 function lookupNames(featureVector, warehouseId, driverId) {
@@ -145,8 +145,101 @@ export function AgreementIndicator({ reasonerText, reasonerConclusion }) {
   );
 }
 
+const IMPACT_SECTIONS = [
+  { id: 'whyRoute', label: 'Why This Route', patterns: [/signal/i, /dominant/i, /contribution/i] },
+  { id: 'borderline', label: 'Borderline Check', patterns: [/borderline/i, /gap/i, /rank/i] },
+  { id: 'fairness', label: 'Fairness Check', patterns: [/fairness/i, /geographic/i, /underserved/i, /complaint/i] },
+  { id: 'riskFlags', label: 'Risk Flags', patterns: [/risk/i, /flag/i, /blind spot/i, /deadline/i] },
+  { id: 'finalCall', label: 'Final Call', patterns: [/conclusion/i, /decision/i, /confirm/i, /override/i, /qualify/i] },
+];
+
+function simplifyLanguage(text) {
+  return text
+    .replace(/\bcomposite score\b/gi, 'overall score')
+    .replace(/\bweighted contribution\b/gi, 'impact')
+    .replace(/\bzone risk penalty\b/gi, 'area risk cost')
+    .replace(/\bplausible real-world variation\b/gi, 'real-world change')
+    .replace(/\bstructural blind spots\b/gi, 'missing factors')
+    .replace(/\bgeographic fairness\b/gi, 'area fairness')
+    .replace(/\btime window feasibility\b/gi, 'on-time feasibility')
+    .replace(/\bredlining by proxy\b/gi, 'unfair area bias')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getSingleImpactSentence(text) {
+  const cleaned = simplifyLanguage(text);
+  if (!cleaned) return 'No summary available.';
+
+  // If the model already provided a summary sentence, prefer it.
+  const provided = cleaned.match(/(?:summary|impact|tl;dr)\s*:\s*([^.!?]+[.!?])/i);
+  if (provided?.[1]) return provided[1].trim();
+
+  const sentences = cleaned
+    .split(/(?<=[.!?])\s+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+  if (sentences.length === 0) return `${cleaned.replace(/[.!?]+$/, '')}.`;
+  if (sentences.length === 1) return sentences[0];
+
+  const impactWords = [
+    'risk', 'delay', 'deadline', 'fairness', 'bias', 'recommended',
+    'best', 'override', 'confirm', 'qualify', 'confidence', 'tradeoff',
+  ];
+  const scoreSentence = (sentence) => {
+    const lower = sentence.toLowerCase();
+    const impactScore = impactWords.reduce((acc, word) => acc + (lower.includes(word) ? 2 : 0), 0);
+    const numberPenalty = (sentence.match(/\d/g) || []).length > 5 ? -2 : 0;
+    const lengthScore = sentence.length >= 45 && sentence.length <= 170 ? 2 : 0;
+    return impactScore + numberPenalty + lengthScore;
+  };
+
+  const picked = [...sentences].sort((a, b) => scoreSentence(b) - scoreSentence(a))[0];
+  return /[.!?]$/.test(picked) ? picked : `${picked}.`;
+}
+
+function pickImpactHeading(rawHeading) {
+  const heading = rawHeading ?? '';
+  const match = IMPACT_SECTIONS.find(section =>
+    section.patterns.some(pattern => pattern.test(heading))
+  );
+  return match?.label ?? 'Reasoning Detail';
+}
+
+function parseReasoningSections(rawText) {
+  const lines = rawText.split('\n');
+  const sections = [];
+  let current = null;
+
+  for (const line of lines) {
+    const headingMatch = line.match(/^##\s+(.+)$/);
+    if (headingMatch) {
+      if (current) sections.push(current);
+      current = { heading: headingMatch[1].trim(), bodyLines: [] };
+    } else {
+      if (!current) current = { heading: 'Reasoning', bodyLines: [] };
+      current.bodyLines.push(line);
+    }
+  }
+  if (current) sections.push(current);
+
+  return sections
+    .map((section, index) => {
+      const body = section.bodyLines.join('\n').trim();
+      return {
+        key: `${section.heading}-${index}`,
+        displayHeading: pickImpactHeading(section.heading),
+        originalHeading: section.heading,
+        body,
+        summary: getSingleImpactSentence(body || section.heading),
+      };
+    })
+    .filter(section => section.body.length > 0 || section.originalHeading.length > 0);
+}
+
 export function ReasonerPanel({ reasonerText, reasonerConclusion, isStreaming }) {
   const bodyRef = useRef(null);
+  const [openSections, setOpenSections] = useState({});
 
   // Strip the <conclusion> XML block before rendering
   const conclusionStart = reasonerText.indexOf('<conclusion>');
@@ -160,7 +253,20 @@ export function ReasonerPanel({ reasonerText, reasonerConclusion, isStreaming })
     }
   }, [displayText]);
 
+  const parsedSections = useMemo(() => parseReasoningSections(displayText), [displayText]);
+
   const conclusionDecision = reasonerConclusion?.decision;
+  const finalCallSummary = reasonerConclusion
+    ? simplifyLanguage(
+      `${reasonerConclusion.decision} · Recommended ${reasonerConclusion.recommended_option}. ${reasonerConclusion.override_reason && reasonerConclusion.override_reason !== 'NONE'
+        ? reasonerConclusion.override_reason
+        : ''}`
+    )
+    : null;
+
+  const toggleSection = (key) => {
+    setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
+  };
 
   return (
     <div className="panel reasoner-panel-full">
@@ -186,28 +292,47 @@ export function ReasonerPanel({ reasonerText, reasonerConclusion, isStreaming })
         )}
 
         {displayText.length > 0 && (
-          <div className="reasoner-markdown">
-            <ReactMarkdown
-              components={{
-                h2: ({ children }) => (
-                  <div className="rmd-h2">
-                    <span className="rmd-h2-icon">▸</span>
-                    <span className="rmd-h2-text">{children}</span>
-                  </div>
-                ),
-                p: ({ children }) => (
-                  <p className="rmd-p">{children}</p>
-                ),
-                ul: ({ children }) => <ul className="rmd-ul">{children}</ul>,
-                ol: ({ children }) => <ol className="rmd-ol">{children}</ol>,
-                li: ({ children }) => <li className="rmd-li">{children}</li>,
-                strong: ({ children }) => <strong className="rmd-strong">{children}</strong>,
-                em: ({ children }) => <em className="rmd-em">{children}</em>,
-                code: ({ children }) => <code className="rmd-code">{children}</code>,
-              }}
-            >
-              {displayText}
-            </ReactMarkdown>
+          <div className="reasoner-markdown reasoner-accordion">
+            {parsedSections.map((section) => {
+              const isOpen = !!openSections[section.key];
+              return (
+                <div key={section.key} className="reasoner-accordion-item">
+                  <button
+                    type="button"
+                    className="reasoner-accordion-header"
+                    onClick={() => toggleSection(section.key)}
+                    title={section.originalHeading}
+                  >
+                    <span className="reasoner-accordion-chevron">{isOpen ? '▾' : '▸'}</span>
+                    <span className="reasoner-accordion-title">{section.displayHeading}</span>
+                    <span className="reasoner-accordion-preview">{section.summary}</span>
+                  </button>
+                  {isOpen && (
+                    <div className="reasoner-accordion-body">
+                      <ReactMarkdown
+                        components={{
+                          p: ({ children }) => <p className="rmd-p">{children}</p>,
+                          ul: ({ children }) => <ul className="rmd-ul">{children}</ul>,
+                          ol: ({ children }) => <ol className="rmd-ol">{children}</ol>,
+                          li: ({ children }) => <li className="rmd-li">{children}</li>,
+                          strong: ({ children }) => <strong className="rmd-strong">{children}</strong>,
+                          em: ({ children }) => <em className="rmd-em">{children}</em>,
+                          code: ({ children }) => <code className="rmd-code">{children}</code>,
+                        }}
+                      >
+                        {simplifyLanguage(section.body)}
+                      </ReactMarkdown>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {finalCallSummary && (
+              <div className="reasoner-final-call">
+                <div className="reasoner-final-call-title">Final Call</div>
+                <div className="reasoner-final-call-body">{finalCallSummary}</div>
+              </div>
+            )}
             {isStreaming && <span className="reasoner-cursor" />}
           </div>
         )}

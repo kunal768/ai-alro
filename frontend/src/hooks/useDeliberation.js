@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { MOCK_DATA } from '../mockData.js';
 import { parseSSEBuffer } from '../utils/sseParser.js';
+import { fetchRoadGeometry } from '../utils/routeGeometry.js';
 
 const DEMO_URL = (id) => `/api/reasoner/demo/${id}`;
 const SIGNAL_STAGGER_MS = 350;
@@ -8,6 +9,66 @@ const SIGNAL_COUNT = 8;
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function buildMapRoutes(fv, opt) {
+  const warehouseMap = {};
+  const driverMap = {};
+  (fv.warehouse_options ?? []).forEach(w => { warehouseMap[w.warehouse_id] = w; });
+  (fv.available_drivers ?? []).forEach(d => { driverMap[d.driver_id] = d; });
+
+  const routes = (opt.ranked_options ?? []).map((o, idx) => {
+    const wh = warehouseMap[o.warehouse_id] ?? {};
+    const drv = driverMap[o.driver_id] ?? {};
+    return {
+      optionId: o.option_id,
+      warehouseId: o.warehouse_id,
+      driverId: o.driver_id,
+      warehouseName: wh.name,
+      driverName: drv.name,
+      warehouseLat: wh.lat ?? 0,
+      warehouseLon: wh.lon ?? 0,
+      destLat: fv.destination_lat,
+      destLon: fv.destination_lon,
+      rank: idx + 1,
+      score: o.composite_score,
+      etaHours: o.estimated_duration_hours,
+      cost: o.estimated_cost_gbp,
+    };
+  });
+
+  const topOpt = opt.top_choice ?? opt.ranked_options?.[0];
+  const topWh = warehouseMap[topOpt?.warehouse_id] ?? {};
+  const topDrv = driverMap[topOpt?.driver_id] ?? {};
+
+  return {
+    routes,
+    topRoute: topOpt ? {
+      optionId: topOpt.option_id,
+      warehouseId: topOpt.warehouse_id,
+      driverId: topOpt.driver_id,
+      warehouseName: topWh.name,
+      driverName: topDrv.name,
+      warehouseLat: topWh.lat ?? 0,
+      warehouseLon: topWh.lon ?? 0,
+      destLat: fv.destination_lat,
+      destLon: fv.destination_lon,
+      etaHours: topOpt.estimated_duration_hours,
+      cost: topOpt.estimated_cost_gbp,
+      score: topOpt.composite_score,
+    } : null,
+  };
+}
+
+async function hydrateRoutesWithRoadGeometry(routes) {
+  const enriched = await Promise.all(routes.map(async (route) => {
+    const pathCoords = await fetchRoadGeometry(
+      { lat: route.warehouseLat, lon: route.warehouseLon },
+      { lat: route.destLat, lon: route.destLon }
+    );
+    return { ...route, pathCoords };
+  }));
+  return enriched;
 }
 
 async function streamDemo(scenarioId, abortSignal, callbacks) {
@@ -179,55 +240,82 @@ export function useDeliberation() {
         setOptimizerOutput(opt);
         runAnimation(fv);
 
-        // Add candidate routes from optimizer output (additive)
-        const warehouseMap = {};
-        (fv.warehouse_options ?? []).forEach(w => { warehouseMap[w.warehouse_id] = w; });
-        const routes = (opt.ranked_options ?? []).map((o, idx) => {
-          const wh = warehouseMap[o.warehouse_id] ?? {};
-          return {
-            optionId: o.option_id,
-            warehouseLat: wh.lat ?? 0,
-            warehouseLon: wh.lon ?? 0,
-            destLat: fv.destination_lat,
-            destLon: fv.destination_lon,
-            rank: idx + 1,
-            score: o.composite_score,
-          };
-        });
-        const topOpt = opt.top_choice ?? opt.ranked_options?.[0];
-        const topWh = warehouseMap[topOpt?.warehouse_id] ?? {};
+        const { routes, topRoute } = buildMapRoutes(fv, opt);
         setMapState(prev => ({
           ...prev,
           candidateRoutes: [...(prev.candidateRoutes ?? []), ...routes],
-          selectedRoute: topOpt ? {
-            optionId: topOpt.option_id,
-            warehouseLat: topWh.lat ?? 0,
-            warehouseLon: topWh.lon ?? 0,
-            destLat: fv.destination_lat,
-            destLon: fv.destination_lon,
-          } : prev.selectedRoute,
+          selectedRoute: topRoute ?? prev.selectedRoute,
         }));
+
+        hydrateRoutesWithRoadGeometry(routes).then((roadRoutes) => {
+          if (signal.aborted) return;
+          const byId = new Map(roadRoutes.map(route => [route.optionId, route]));
+          setMapState(prev => ({
+            ...prev,
+            candidateRoutes: (prev.candidateRoutes ?? []).map(route => byId.get(route.optionId) ?? route),
+            selectedRoute: prev.selectedRoute ? (byId.get(prev.selectedRoute.optionId) ?? prev.selectedRoute) : prev.selectedRoute,
+            finalRoute: prev.finalRoute ? {
+              ...prev.finalRoute,
+              pathCoords: byId.get(prev.finalRoute.optionId)?.pathCoords ?? prev.finalRoute.pathCoords,
+            } : prev.finalRoute,
+          }));
+        });
       },
       onToken:      (text) => setReasonerText(prev => prev + text),
       onConclusion: (data) => setReasonerConclusion(data),
       onResolution: (data) => {
         setResolution(data);
+        let missingGeometryRoute = null;
         // Set final route on map — find warehouse from candidateRoutes
         setMapState(prev => {
           const finalOpt = prev.candidateRoutes?.find(r => r.optionId === data.final_option_id);
+          if (finalOpt && !finalOpt.pathCoords) {
+            missingGeometryRoute = finalOpt;
+          }
           return {
             ...prev,
             finalRoute: finalOpt ? {
               optionId: finalOpt.optionId,
+              warehouseId: finalOpt.warehouseId,
+              driverId: finalOpt.driverId,
+              warehouseName: finalOpt.warehouseName,
+              driverName: finalOpt.driverName,
               warehouseLat: finalOpt.warehouseLat,
               warehouseLon: finalOpt.warehouseLon,
               destLat: finalOpt.destLat,
               destLon: finalOpt.destLon,
+              etaHours: finalOpt.etaHours,
+              cost: finalOpt.cost,
+              score: finalOpt.score,
+              pathCoords: finalOpt.pathCoords,
+              reason: data.explanation ?? null,
               decision: data.state === 'convergence' ? 'confirm' :
                         data.state === 'qualification' ? 'qualify' : 'override',
             } : prev.finalRoute,
           };
         });
+
+        // If final option geometry has not been hydrated yet, fetch it now.
+        if (missingGeometryRoute) {
+          fetchRoadGeometry(
+            { lat: missingGeometryRoute.warehouseLat, lon: missingGeometryRoute.warehouseLon },
+            { lat: missingGeometryRoute.destLat, lon: missingGeometryRoute.destLon }
+          ).then((pathCoords) => {
+            if (signal.aborted) return;
+            setMapState(state => ({
+              ...state,
+              candidateRoutes: (state.candidateRoutes ?? []).map(route => (
+                route.optionId === missingGeometryRoute.optionId ? { ...route, pathCoords } : route
+              )),
+              selectedRoute: state.selectedRoute?.optionId === missingGeometryRoute.optionId
+                ? { ...state.selectedRoute, pathCoords }
+                : state.selectedRoute,
+              finalRoute: state.finalRoute?.optionId === missingGeometryRoute.optionId
+                ? { ...state.finalRoute, pathCoords }
+                : state.finalRoute,
+            }));
+          });
+        }
       },
       onError:      (data) => { setErrorState(data); setIsDegraded(true); },
     };
@@ -245,33 +333,26 @@ export function useDeliberation() {
           runAnimation(mockFv);
 
           // Also build candidate routes for mock fallback
-          const warehouseMap = {};
-          (mockFv.warehouse_options ?? []).forEach(w => { warehouseMap[w.warehouse_id] = w; });
-          const routes = (mockOpt.ranked_options ?? []).map((o, idx) => {
-            const wh = warehouseMap[o.warehouse_id] ?? {};
-            return {
-              optionId: o.option_id,
-              warehouseLat: wh.lat ?? 0,
-              warehouseLon: wh.lon ?? 0,
-              destLat: mockFv.destination_lat,
-              destLon: mockFv.destination_lon,
-              rank: idx + 1,
-              score: o.composite_score,
-            };
-          });
-          const topOpt = mockOpt.top_choice ?? mockOpt.ranked_options?.[0];
-          const topWh = warehouseMap[topOpt?.warehouse_id] ?? {};
+          const { routes, topRoute } = buildMapRoutes(mockFv, mockOpt);
           setMapState(prev => ({
             ...prev,
             candidateRoutes: [...(prev.candidateRoutes ?? []), ...routes],
-            selectedRoute: topOpt ? {
-              optionId: topOpt.option_id,
-              warehouseLat: topWh.lat ?? 0,
-              warehouseLon: topWh.lon ?? 0,
-              destLat: mockFv.destination_lat,
-              destLon: mockFv.destination_lon,
-            } : prev.selectedRoute,
+            selectedRoute: topRoute ?? prev.selectedRoute,
           }));
+
+          hydrateRoutesWithRoadGeometry(routes).then((roadRoutes) => {
+            if (signal.aborted) return;
+            const byId = new Map(roadRoutes.map(route => [route.optionId, route]));
+            setMapState(prev => ({
+              ...prev,
+              candidateRoutes: (prev.candidateRoutes ?? []).map(route => byId.get(route.optionId) ?? route),
+              selectedRoute: prev.selectedRoute ? (byId.get(prev.selectedRoute.optionId) ?? prev.selectedRoute) : prev.selectedRoute,
+              finalRoute: prev.finalRoute ? {
+                ...prev.finalRoute,
+                pathCoords: byId.get(prev.finalRoute.optionId)?.pathCoords ?? prev.finalRoute.pathCoords,
+              } : prev.finalRoute,
+            }));
+          });
         }
         simulateMockStream(scenario.id, signal, streamCallbacks)
           .then(() => streamDoneResolve('done'));

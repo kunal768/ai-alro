@@ -28,7 +28,7 @@ function ConvergenceCard({ resolution, featureVector, optimizerOutput }) {
   return (
     <div className="resolution-card convergence">
       <div className="resolution-decision-block">
-        <div className="resolution-decision-label">Final Decision</div>
+        <div className="resolution-decision-label">Final Route</div>
         <div className="resolution-decision-id mono">{resolution.final_option_id}</div>
         <div className="resolution-decision-meta">
           {finalOpt?.wh && <span>{finalOpt.wh.name}</span>}
@@ -48,7 +48,7 @@ function ConvergenceCard({ resolution, featureVector, optimizerOutput }) {
       </div>
 
       <div className="resolution-explanation">
-        {resolution.explanation}
+        {resolution.explanation || 'Both checks agree this route is the safest and fastest balance.'}
       </div>
     </div>
   );
@@ -62,7 +62,7 @@ function QualificationCard({ resolution, featureVector, optimizerOutput, reasone
   return (
     <div className="resolution-card qualification">
       <div className="resolution-decision-block">
-        <div className="resolution-decision-label">Final Decision — Confirmed with Caveats</div>
+        <div className="resolution-decision-label">Final Route - Confirmed with Conditions</div>
         <div className="resolution-decision-id mono">{resolution.final_option_id}</div>
         <div className="resolution-decision-meta">
           {finalOpt?.wh && <span>{finalOpt.wh.name}</span>}
@@ -83,7 +83,7 @@ function QualificationCard({ resolution, featureVector, optimizerOutput, reasone
 
       {flags.length > 0 && (
         <div className="flags-block">
-          <div className="flags-header">⚑ Operator Flags — Escalation Required</div>
+          <div className="flags-header">⚑ Watch Items</div>
           {flags.map((flag, i) => (
             <div key={i} className="flag-item">
               <div className="flag-bullet">!</div>
@@ -94,7 +94,7 @@ function QualificationCard({ resolution, featureVector, optimizerOutput, reasone
       )}
 
       <div className="resolution-explanation">
-        {resolution.explanation}
+        {resolution.explanation || 'This route is approved, but the flagged items need monitoring during execution.'}
       </div>
     </div>
   );
@@ -143,7 +143,7 @@ function OverrideCard({ resolution, featureVector, optimizerOutput, reasonerConc
       </div>
 
       <div className="resolution-decision-block">
-        <div className="resolution-decision-label">Final Decision — Override Applied</div>
+        <div className="resolution-decision-label">Final Route - Override Applied</div>
         <div className="resolution-decision-id mono">{resolution.final_option_id}</div>
         <div className="resolution-agents-block" style={{ padding: '12px 0 0', borderTop: 'none' }}>
           <AgentRow label="OPTIMIZER" agentClass="optimizer" choice={resolution.optimizer_choice} isMatch={false} />
@@ -153,7 +153,7 @@ function OverrideCard({ resolution, featureVector, optimizerOutput, reasonerConc
 
       {flags.length > 0 && (
         <div className="flags-block">
-          <div className="flags-header">⚑ Fairness Flags</div>
+          <div className="flags-header">⚑ Risk Flags</div>
           {flags.map((flag, i) => (
             <div key={i} className="flag-item">
               <div className="flag-bullet">!</div>
@@ -165,7 +165,7 @@ function OverrideCard({ resolution, featureVector, optimizerOutput, reasonerConc
 
       {overrideReason && (
         <div className="override-reason-block">
-          <div className="override-reason-label">Override Reason</div>
+          <div className="override-reason-label">Why We Overrode</div>
           <div className="override-reason-text">{overrideReason}</div>
         </div>
       )}
@@ -186,9 +186,9 @@ export default function Phase3_Resolution({
   const iconMap = { convergence: '✓', qualification: '⚠', override: '✕' };
   const titleMap = { convergence: 'Convergence', qualification: 'Qualification', override: 'Override' };
   const subtitleMap = {
-    convergence:   'Both agents reached the same conclusion. Decision confirmed with joint attribution.',
-    qualification: 'Optimizer choice confirmed. Reasoner has surfaced conditions requiring operator attention.',
-    override:      'Divergence detected. Reasoner has overridden the Optimizer. Fairness constraint applied.',
+    convergence:   'Both agents agree on the same route.',
+    qualification: 'Top route is approved, with conditions to watch.',
+    override:      'A safer route replaced the optimizer suggestion.',
   };
 
   return (

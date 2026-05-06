@@ -85,7 +85,7 @@ function extractSignals(fv) {
   ];
 }
 
-export default function Phase1_Signals({ featureVector, signalRevealCount }) {
+export default function Phase1_Signals({ featureVector, signalRevealCount, phase }) {
   if (!featureVector) {
     return (
       <div className="phase1-container">
@@ -146,7 +146,7 @@ export default function Phase1_Signals({ featureVector, signalRevealCount }) {
         })}
       </div>
 
-      {signalRevealCount >= signals.length && (
+      {phase === 'intake' && signalRevealCount >= signals.length && (
         <div className="phase1-advance">
           <div className="phase1-advance-dot" />
           Advancing to deliberation…

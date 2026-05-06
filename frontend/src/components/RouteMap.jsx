@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Polyline, Tooltip, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -41,120 +41,176 @@ function MapBounds({ mapState }) {
 }
 
 export default function RouteMap({ mapState }) {
+  const [showFinalDetails, setShowFinalDetails] = useState(false);
+  const [expandFinalDetails, setExpandFinalDetails] = useState(false);
+
   const dest = mapState?.destination;
   const drivers = mapState?.drivers ?? [];
   const candidateRoutes = mapState?.candidateRoutes ?? [];
   const selectedRoute = mapState?.selectedRoute;
   const finalRoute = mapState?.finalRoute;
+  const routePositions = (route) => (
+    route?.pathCoords?.length >= 2
+      ? route.pathCoords
+      : [[route.warehouseLat, route.warehouseLon], [route.destLat, route.destLon]]
+  );
 
   // Show all 12 seed drivers when no scenario has started yet
   const displayDrivers = (drivers.length > 0) ? drivers : INITIAL_DRIVERS;
 
+  const decisionLabel =
+    finalRoute?.decision === 'confirm'
+      ? 'Confirmed'
+      : finalRoute?.decision === 'qualify'
+        ? 'Confirmed with Conditions'
+        : finalRoute?.decision === 'override'
+          ? 'Override Applied'
+          : 'Pending';
+
   return (
-    <MapContainer
-      center={BAY_AREA_CENTER}
-      zoom={DEFAULT_ZOOM}
-      zoomControl={false}
-      attributionControl={false}
-      className="route-map"
-    >
-      <TileLayer
-        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-        subdomains="abcd"
-        maxZoom={19}
-      />
-      <MapBounds mapState={mapState} />
-
-      {/* Warehouses — always visible */}
-      {WAREHOUSES.map(wh => (
-        <CircleMarker
-          key={wh.id}
-          center={[wh.lat, wh.lon]}
-          radius={7}
-          pathOptions={{ color: '#a78bfa', fillColor: '#7c3aed', fillOpacity: 0.85, weight: 2 }}
-        >
-          <Tooltip direction="top" offset={[0, -8]} opacity={0.9}>
-            <span style={{ fontSize: 11, fontWeight: 600 }}>{wh.id}</span><br />
-            <span style={{ fontSize: 10 }}>{wh.name}</span>
-          </Tooltip>
-        </CircleMarker>
-      ))}
-
-      {/* Drivers/dashers — shows INITIAL_DRIVERS before scenario, scenario drivers after */}
-      {displayDrivers.map(drv => (
-        <CircleMarker
-          key={drv.id}
-          center={[drv.lat, drv.lon]}
-          radius={drv.available !== false ? 5 : 4}
-          pathOptions={{
-            color: drv.available !== false ? '#34d399' : '#fbbf24',
-            fillColor: drv.available !== false ? '#059669' : '#d97706',
-            fillOpacity: drv.available !== false ? 0.8 : 0.5,
-            weight: 1.5,
-          }}
-        >
-          <Tooltip direction="top" offset={[0, -6]} opacity={0.9}>
-            <span style={{ fontSize: 10 }}>
-              {drv.name} ({drv.vehicle_type})
-              {drv.available === false ? ' — on delivery' : ''}
-            </span>
-          </Tooltip>
-        </CircleMarker>
-      ))}
-
-      {/* Destination */}
-      {dest && (
-        <CircleMarker
-          center={[dest.lat, dest.lon]}
-          radius={9}
-          pathOptions={{ color: '#f87171', fillColor: '#ef4444', fillOpacity: 0.9, weight: 2.5 }}
-        >
-          <Tooltip direction="top" offset={[0, -10]} opacity={0.9} permanent={false}>
-            <span style={{ fontSize: 11, fontWeight: 700 }}>Destination</span><br />
-            <span style={{ fontSize: 10 }}>{dest.zone}</span>
-          </Tooltip>
-        </CircleMarker>
-      )}
-
-      {/* Candidate routes (additive, grey dashes) */}
-      {candidateRoutes.map((route) => (
-        <Polyline
-          key={route.optionId}
-          positions={[[route.warehouseLat, route.warehouseLon], [route.destLat, route.destLon]]}
-          pathOptions={{
-            color: '#4b5563',
-            weight: route.rank === 1 ? 2.5 : 1.5,
-            dashArray: '6 4',
-            opacity: 0.7,
-          }}
-        >
-          <Tooltip sticky opacity={0.9}>
-            <span style={{ fontSize: 10 }}>Rank {route.rank}: {route.optionId}</span><br />
-            <span style={{ fontSize: 10 }}>Score: {route.score?.toFixed(3)}</span>
-          </Tooltip>
-        </Polyline>
-      ))}
-
-      {/* Selected route (top choice — highlighted blue) */}
-      {selectedRoute && (
-        <Polyline
-          positions={[[selectedRoute.warehouseLat, selectedRoute.warehouseLon], [selectedRoute.destLat, selectedRoute.destLon]]}
-          pathOptions={{ color: '#4b7fe0', weight: 3.5, opacity: 0.9 }}
+    <div className="route-map-shell">
+      <MapContainer
+        center={BAY_AREA_CENTER}
+        zoom={DEFAULT_ZOOM}
+        zoomControl={false}
+        attributionControl={false}
+        className="route-map"
+      >
+        <TileLayer
+          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          subdomains="abcd"
+          maxZoom={19}
         />
-      )}
+        <MapBounds mapState={mapState} />
 
-      {/* Final route (resolution — bright green/amber/red) */}
+        {/* Warehouses — always visible */}
+        {WAREHOUSES.map(wh => (
+          <CircleMarker
+            key={wh.id}
+            center={[wh.lat, wh.lon]}
+            radius={7}
+            pathOptions={{ color: '#a78bfa', fillColor: '#7c3aed', fillOpacity: 0.85, weight: 2 }}
+          >
+            <Tooltip direction="top" offset={[0, -8]} opacity={0.9}>
+              <span style={{ fontSize: 11, fontWeight: 600 }}>{wh.id}</span><br />
+              <span style={{ fontSize: 10 }}>{wh.name}</span>
+            </Tooltip>
+          </CircleMarker>
+        ))}
+
+        {/* Drivers/dashers — shows INITIAL_DRIVERS before scenario, scenario drivers after */}
+        {displayDrivers.map(drv => (
+          <CircleMarker
+            key={drv.id}
+            center={[drv.lat, drv.lon]}
+            radius={drv.available !== false ? 5 : 4}
+            pathOptions={{
+              color: drv.available !== false ? '#34d399' : '#fbbf24',
+              fillColor: drv.available !== false ? '#059669' : '#d97706',
+              fillOpacity: drv.available !== false ? 0.8 : 0.5,
+              weight: 1.5,
+            }}
+          >
+            <Tooltip direction="top" offset={[0, -6]} opacity={0.9}>
+              <span style={{ fontSize: 10 }}>
+                {drv.name} ({drv.vehicle_type})
+                {drv.available === false ? ' — on delivery' : ''}
+              </span>
+            </Tooltip>
+          </CircleMarker>
+        ))}
+
+        {/* Destination */}
+        {dest && (
+          <CircleMarker
+            center={[dest.lat, dest.lon]}
+            radius={9}
+            pathOptions={{ color: '#f87171', fillColor: '#ef4444', fillOpacity: 0.9, weight: 2.5 }}
+          >
+            <Tooltip direction="top" offset={[0, -10]} opacity={0.9} permanent={false}>
+              <span style={{ fontSize: 11, fontWeight: 700 }}>Destination</span><br />
+              <span style={{ fontSize: 10 }}>{dest.zone}</span>
+            </Tooltip>
+          </CircleMarker>
+        )}
+
+        {/* Candidate routes (additive, grey dashes) */}
+        {candidateRoutes.map((route) => (
+          <Polyline
+            key={route.optionId}
+            positions={routePositions(route)}
+            pathOptions={{
+              color: '#4b5563',
+              weight: route.rank === 1 ? 2.5 : 1.5,
+              dashArray: '6 4',
+              opacity: 0.7,
+            }}
+          >
+            <Tooltip sticky opacity={0.9}>
+              <span style={{ fontSize: 10 }}>Rank {route.rank}: {route.optionId}</span><br />
+              <span style={{ fontSize: 10 }}>Score: {route.score?.toFixed(3)}</span>
+            </Tooltip>
+          </Polyline>
+        ))}
+
+        {/* Selected route (top choice — highlighted blue) */}
+        {selectedRoute && (
+          <Polyline
+            positions={routePositions(selectedRoute)}
+            pathOptions={{ color: '#4b7fe0', weight: 3.5, opacity: 0.9 }}
+          />
+        )}
+
+        {/* Final route (resolution — high-contrast solid with click details) */}
+        {finalRoute && (
+          <Polyline
+            positions={routePositions(finalRoute)}
+            pathOptions={{
+              color: finalRoute.decision === 'confirm' ? '#34d399' :
+                finalRoute.decision === 'qualify' ? '#fbbf24' : '#f87171',
+              weight: 7,
+              opacity: 1.0,
+              lineCap: 'round',
+            }}
+            eventHandlers={{
+              click: () => {
+                setShowFinalDetails(true);
+                setExpandFinalDetails(true);
+              },
+            }}
+          >
+            <Tooltip sticky opacity={0.95}>
+              <span style={{ fontSize: 10, fontWeight: 700 }}>Final Route</span><br />
+              <span style={{ fontSize: 10 }}>Click for details</span>
+            </Tooltip>
+          </Polyline>
+        )}
+      </MapContainer>
+
       {finalRoute && (
-        <Polyline
-          positions={[[finalRoute.warehouseLat, finalRoute.warehouseLon], [finalRoute.destLat, finalRoute.destLon]]}
-          pathOptions={{
-            color: finalRoute.decision === 'confirm' ? '#34d399' :
-                   finalRoute.decision === 'qualify' ? '#fbbf24' : '#f87171',
-            weight: 5,
-            opacity: 1.0,
-          }}
-        />
+        <div className={`final-route-card ${showFinalDetails ? 'visible' : ''}`}>
+          <button
+            type="button"
+            className="final-route-card-header"
+            onClick={() => setExpandFinalDetails(prev => !prev)}
+          >
+            <span className="final-route-card-title">Final Route</span>
+            <span className="final-route-card-pill">{decisionLabel}</span>
+            <span className="final-route-card-chevron">{expandFinalDetails ? '▾' : '▸'}</span>
+          </button>
+          {expandFinalDetails && (
+            <div className="final-route-card-body">
+              <div><strong>Route:</strong> {finalRoute.optionId}</div>
+              <div><strong>Warehouse:</strong> {finalRoute.warehouseName ?? finalRoute.warehouseId ?? 'N/A'}</div>
+              <div><strong>Driver:</strong> {finalRoute.driverName ?? finalRoute.driverId ?? 'N/A'}</div>
+              <div><strong>ETA:</strong> {finalRoute.etaHours ? `${finalRoute.etaHours.toFixed(1)}h` : 'N/A'}</div>
+              <div><strong>Cost:</strong> {finalRoute.cost ? `$${finalRoute.cost.toFixed(2)}` : 'N/A'}</div>
+              {finalRoute.score && <div><strong>Score:</strong> {finalRoute.score.toFixed(3)}</div>}
+              {finalRoute.reason && <div className="final-route-card-reason"><strong>Why:</strong> {finalRoute.reason}</div>}
+            </div>
+          )}
+        </div>
       )}
-    </MapContainer>
+    </div>
   );
 }
