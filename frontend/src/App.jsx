@@ -5,6 +5,7 @@ import ScenarioSelector from './components/ScenarioSelector.jsx';
 import Phase1_Signals from './components/Phase1_Signals.jsx';
 import Phase2_Deliberation from './components/Phase2_Deliberation.jsx';
 import Phase3_Resolution from './components/Phase3_Resolution.jsx';
+import DegradedBanner from './components/DegradedBanner.jsx';
 
 export default function App() {
   const {
@@ -16,6 +17,8 @@ export default function App() {
     reasonerText,
     reasonerConclusion,
     resolution,
+    errorState,
+    isDegraded,
     isStreaming,
     startDeliberation,
     reset,
@@ -26,6 +29,10 @@ export default function App() {
       <Header activeScenario={activeScenario} phase={phase} onReset={reset} />
 
       {phase !== 'select' && <PhaseTrack phase={phase} />}
+
+      {isDegraded && (phase === 'deliberation' || phase === 'resolution') && (
+        <DegradedBanner errorState={errorState} />
+      )}
 
       <div className="main-content">
         {phase === 'select' && (

@@ -2,10 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { MOCK_DATA } from '../mockData.js';
 import { parseSSEBuffer } from '../utils/sseParser.js';
 
-const INTAKE_URL = 'http://localhost:8002/enrich';
-const OPTIMIZER_URL = 'http://localhost:8003/score';
-const REASONER_URL = 'http://localhost:8004/reason';
-
+const DEMO_URL = (id) => `/api/reasoner/demo/${id}`;
 const SIGNAL_STAGGER_MS = 200;
 const SIGNAL_COUNT = 8;
 
@@ -13,69 +10,12 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function fetchIntake(order, signal) {
-  try {
-    const res = await fetch(INTAKE_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(order),
-      signal,
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.feature_vector ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function fetchOptimizer(featureVector, signal) {
-  try {
-    const res = await fetch(OPTIMIZER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ feature_vector: featureVector }),
-      signal,
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.optimizer_output ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function simulateMockStream(scenarioId, abortSignal, callbacks) {
-  const { reasonerStream } = MOCK_DATA[scenarioId];
-  const { onToken, onConclusion, onResolution } = callbacks;
-
-  const tokens = reasonerStream.text.match(/\S+|\n+/g) ?? [];
-
-  for (let i = 0; i < tokens.length; i++) {
-    if (abortSignal.aborted) return;
-    const token = tokens[i];
-    const isNewline = /^\n+$/.test(token);
-    onToken(isNewline ? token : token + ' ');
-    await delay(isNewline ? 120 : 28 + Math.random() * 20);
-  }
-
-  await delay(350);
-  if (abortSignal.aborted) return;
-  onConclusion(reasonerStream.conclusion);
-
-  await delay(450);
-  if (abortSignal.aborted) return;
-  onResolution(reasonerStream.resolution);
-}
-
-async function streamReasoner(featureVector, optimizerOutput, scenarioId, abortSignal, callbacks) {
-  const { onToken, onConclusion, onResolution, onError } = callbacks;
+async function streamDemo(scenarioId, abortSignal, callbacks) {
+  const { onScenarioData, onToken, onConclusion, onResolution, onError } = callbacks;
 
   try {
-    const res = await fetch(REASONER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-      body: JSON.stringify({ feature_vector: featureVector, optimizer_output: optimizerOutput }),
+    const res = await fetch(DEMO_URL(scenarioId), {
+      headers: { Accept: 'text/event-stream' },
       signal: abortSignal,
     });
 
@@ -100,29 +40,43 @@ async function streamReasoner(featureVector, optimizerOutput, scenarioId, abortS
         try { data = JSON.parse(evt.data); } catch { continue; }
 
         switch (evt.type) {
-          case 'token':
-            onToken(data.text ?? '');
-            break;
-          case 'conclusion':
-            onConclusion(data);
-            break;
-          case 'resolution':
-            onResolution(data);
-            break;
-          case 'error':
-            onError(data);
-            break;
-          case 'done':
-            return 'done';
+          case 'scenario_data': onScenarioData(data); break;
+          case 'token':         onToken(data.text ?? ''); break;
+          case 'conclusion':    onConclusion(data); break;
+          case 'resolution':    onResolution(data); break;
+          case 'error':         onError(data); break;
+          case 'done':          return 'done';
         }
       }
     }
     return 'done';
   } catch {
     if (abortSignal.aborted) return 'aborted';
-    await simulateMockStream(scenarioId, abortSignal, callbacks);
-    return 'done';
+    return 'fallback';
   }
+}
+
+async function simulateMockStream(scenarioId, abortSignal, callbacks) {
+  const { reasonerStream } = MOCK_DATA[scenarioId];
+  const { onToken, onConclusion, onResolution } = callbacks;
+
+  const tokens = reasonerStream.text.match(/\S+|\n+/g) ?? [];
+
+  for (let i = 0; i < tokens.length; i++) {
+    if (abortSignal.aborted) return;
+    const token = tokens[i];
+    const isNewline = /^\n+$/.test(token);
+    onToken(isNewline ? token : token + ' ');
+    await delay(isNewline ? 120 : 28 + Math.random() * 20);
+  }
+
+  await delay(350);
+  if (abortSignal.aborted) return;
+  onConclusion(reasonerStream.conclusion);
+
+  await delay(450);
+  if (abortSignal.aborted) return;
+  onResolution(reasonerStream.resolution);
 }
 
 export function useDeliberation() {
@@ -172,43 +126,73 @@ export function useDeliberation() {
     setIsDegraded(false);
     setIsStreaming(false);
 
-    const mockFv = MOCK_DATA[scenario.id].featureVector;
+    const mockFv  = MOCK_DATA[scenario.id].featureVector;
     const mockOpt = MOCK_DATA[scenario.id].optimizerOutput;
 
-    const liveFeatureVector = await fetchIntake(scenario.order, signal);
-    if (signal.aborted) return;
-    const featureVector = liveFeatureVector ?? mockFv;
+    // animPromise resolves when Phase 1 animation finishes; we await it before
+    // transitioning to Phase 2 so the user always sees the full signal reveal.
+    let resolveAnim;
+    const animPromise = new Promise(res => { resolveAnim = res; });
+    let animStarted = false;
 
-    setSignals(featureVector);
-
-    for (let i = 1; i <= SIGNAL_COUNT; i++) {
-      if (signal.aborted) return;
-      await delay(SIGNAL_STAGGER_MS);
-      setSignalRevealCount(i);
+    async function runAnimation(fv) {
+      animStarted = true;
+      setSignals(fv);
+      for (let i = 1; i <= SIGNAL_COUNT; i++) {
+        if (signal.aborted) { resolveAnim(); return; }
+        await delay(SIGNAL_STAGGER_MS);
+        setSignalRevealCount(i);
+      }
+      await delay(700);
+      resolveAnim();
     }
 
-    await delay(700);
+    // streamDonePromise resolves when the SSE stream (or mock fallback) ends.
+    let streamDoneResolve;
+    const streamDonePromise = new Promise(res => { streamDoneResolve = res; });
+
+    const streamCallbacks = {
+      onScenarioData: (data) => {
+        setOptimizerOutput(data.optimizer_output ?? mockOpt);
+        runAnimation(data.feature_vector ?? mockFv); // fire-and-forget alongside stream
+      },
+      onToken:      (text) => setReasonerText(prev => prev + text),
+      onConclusion: (data) => setReasonerConclusion(data),
+      onResolution: (data) => setResolution(data),
+      onError:      (data) => { setErrorState(data); setIsDegraded(true); },
+    };
+
+    // Kick off the SSE stream concurrently with the animation.
+    streamDemo(scenario.id, signal, streamCallbacks).then(result => {
+      if (result === 'aborted') { streamDoneResolve('aborted'); return; }
+
+      if (result === 'fallback') {
+        // Backend unavailable — seed state from mock data and simulate the stream.
+        if (!animStarted) {
+          setOptimizerOutput(mockOpt);
+          runAnimation(mockFv);
+        }
+        simulateMockStream(scenario.id, signal, streamCallbacks)
+          .then(() => streamDoneResolve('done'));
+      } else {
+        streamDoneResolve(result);
+      }
+    });
+
+    // Phase 1 → Phase 2: wait for the signal-reveal animation to complete.
+    await animPromise;
     if (signal.aborted) return;
 
-    const liveOptimizer = await fetchOptimizer(featureVector, signal);
-    if (signal.aborted) return;
-
-    const optimizerData = (liveOptimizer && liveOptimizer.ranked_options?.length) ? liveOptimizer : mockOpt;
-    setOptimizerOutput(optimizerData);
     setPhase('deliberation');
     setIsStreaming(true);
 
-    const callbacks = {
-      onToken: (text) => setReasonerText(prev => prev + text),
-      onConclusion: (data) => setReasonerConclusion(data),
-      onResolution: (data) => setResolution(data),
-      onError: (data) => { setErrorState(data); setIsDegraded(true); },
-    };
-
-    const result = await streamReasoner(featureVector, optimizerData, scenario.id, signal, callbacks);
-    if (result === 'aborted') return;
+    // Phase 2 → Phase 3: wait for the reasoning stream to finish.
+    const streamResult = await streamDonePromise;
+    if (streamResult === 'aborted' || signal.aborted) return;
 
     setIsStreaming(false);
+    await delay(450);
+    if (signal.aborted) return;
     setPhase('resolution');
   }, []);
 

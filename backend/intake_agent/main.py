@@ -29,6 +29,26 @@ async def health():
     return {"status": "ok", "service": "intake_agent", "erp_url": ERP_URL}
 
 
+@app.get("/scenarios")
+async def list_scenarios():
+    """
+    Return the catalog of predefined demonstration scenarios.
+
+    Proxied from the Reasoner Agent's registry so the frontend has a single
+    discovery endpoint behind the intake path.
+    """
+    import httpx
+    reasoner_url = os.getenv("REASONER_AGENT_URL", "http://localhost:8004")
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{reasoner_url}/scenarios")
+            r.raise_for_status()
+            return r.json()
+    except Exception:
+        # Return empty list rather than hard-failing; frontend has local fallback
+        return {"scenarios": []}
+
+
 @app.post("/enrich")
 async def enrich(order: OrderRequest):
     """

@@ -27,8 +27,8 @@ source .venv/bin/activate
 cleanup() {
     echo ""
     echo "Stopping services..."
-    kill "$ERP_PID" "$INTAKE_PID" "$REASONER_PID" 2>/dev/null || true
-    wait "$ERP_PID" "$INTAKE_PID" "$REASONER_PID" 2>/dev/null || true
+    kill "$ERP_PID" "$INTAKE_PID" "$OPTIMIZER_PID" "$REASONER_PID" 2>/dev/null || true
+    wait "$ERP_PID" "$INTAKE_PID" "$OPTIMIZER_PID" "$REASONER_PID" 2>/dev/null || true
     echo "Done."
 }
 trap cleanup EXIT INT TERM
@@ -41,12 +41,16 @@ echo "Starting Intake Agent on :8002 ..."
 uvicorn intake_agent.main:app --host 0.0.0.0 --port 8002 --log-level warning &
 INTAKE_PID=$!
 
+echo "Starting Optimizer Agent on :8003 ..."
+uvicorn optimizer_agent.main:app --host 0.0.0.0 --port 8003 --log-level warning &
+OPTIMIZER_PID=$!
+
 echo "Starting Reasoner Agent on :8004 ..."
 uvicorn reasoner_agent.main:app --host 0.0.0.0 --port 8004 --log-level warning &
 REASONER_PID=$!
 
 # Wait until /health on each service responds
-for port in 8001 8002 8004; do
+for port in 8001 8002 8003 8004; do
     for _ in $(seq 1 20); do
         if curl -sf "http://localhost:${port}/health" > /dev/null 2>&1; then
             break
@@ -57,9 +61,10 @@ done
 
 echo ""
 echo "Services ready:"
-echo "  ERP Service    → http://localhost:8001  (docs: /docs)"
-echo "  Intake Agent   → http://localhost:8002  (docs: /docs)"
-echo "  Reasoner Agent → http://localhost:8004  (docs: /docs)"
+echo "  ERP Service      → http://localhost:8001  (docs: /docs)"
+echo "  Intake Agent     → http://localhost:8002  (docs: /docs)"
+echo "  Optimizer Agent  → http://localhost:8003  (docs: /docs)"
+echo "  Reasoner Agent   → http://localhost:8004  (docs: /docs)"
 echo ""
 echo "LLM provider: ${LLM_PROVIDER:-anthropic}  model: ${LLM_MODEL:-default}"
 echo ""

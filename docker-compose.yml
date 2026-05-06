@@ -1,6 +1,16 @@
 version: "3.9"
 
+# ── Healthcheck helper ────────────────────────────────────────────────────────
+# Uses Python's built-in urllib so no extra curl/wget binary is needed in
+# the slim images.
+x-health: &default-health
+  interval: 5s
+  timeout: 3s
+  retries: 5
+  start_period: 15s
+
 services:
+
   erp_service:
     build:
       context: ./backend
@@ -10,6 +20,13 @@ services:
     env_file: ./backend/.env
     networks:
       - alro_net
+    healthcheck:
+      <<: *default-health
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"
 
   intake_agent:
     build:
@@ -19,9 +36,17 @@ services:
       - "8002:8002"
     env_file: ./backend/.env
     depends_on:
-      - erp_service
+      erp_service:
+        condition: service_healthy
     networks:
       - alro_net
+    healthcheck:
+      <<: *default-health
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"
 
   optimizer_agent:
     build:
@@ -31,9 +56,17 @@ services:
       - "8003:8003"
     env_file: ./backend/.env
     depends_on:
-      - intake_agent
+      erp_service:
+        condition: service_healthy
     networks:
       - alro_net
+    healthcheck:
+      <<: *default-health
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"
 
   reasoner_agent:
     build:
@@ -43,16 +76,29 @@ services:
       - "8004:8004"
     env_file: ./backend/.env
     depends_on:
-      - optimizer_agent
+      intake_agent:
+        condition: service_healthy
+      optimizer_agent:
+        condition: service_healthy
     networks:
       - alro_net
+    healthcheck:
+      <<: *default-health
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "5173:5173"
+      - "3000:80"
+    depends_on:
+      reasoner_agent:
+        condition: service_healthy
     networks:
       - alro_net
 
