@@ -167,7 +167,9 @@ export function useDeliberation() {
       if (result === 'aborted') { streamDoneResolve('aborted'); return; }
 
       if (result === 'fallback') {
-        // Backend unavailable — seed state from mock data and simulate the stream.
+        // Backend unavailable — flag degraded state and fall back to mock data.
+        setIsDegraded(true);
+        setErrorState({ message: 'Reasoner Agent unavailable. Proceeding on Optimizer output alone — no chain of thought available.' });
         if (!animStarted) {
           setOptimizerOutput(mockOpt);
           runAnimation(mockFv);

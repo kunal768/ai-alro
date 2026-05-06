@@ -1,13 +1,13 @@
 export function parseSSEBuffer(buffer) {
   const parsed = [];
-  const blocks = buffer.split('\n\n');
+  const blocks = buffer.split(/\r?\n\r?\n/);
   const remainder = blocks.pop() ?? '';
 
   for (const block of blocks) {
     const trimmed = block.trim();
     if (!trimmed) continue;
 
-    const lines = trimmed.split('\n');
+    const lines = trimmed.split(/\r?\n/);
     let eventType = 'message';
     let data = '';
 
