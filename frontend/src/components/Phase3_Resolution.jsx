@@ -1,3 +1,5 @@
+import { formatWarehouse, formatDriver, formatRouteOption, sanitizeOptionIds } from '../utils/formatters.js';
+
 function lookupOption(featureVector, optionId) {
   if (!featureVector || !optionId) return null;
   const [warehouseId, driverId] = optionId.split('::');
@@ -6,13 +8,13 @@ function lookupOption(featureVector, optionId) {
   return { wh, drv };
 }
 
-function AgentRow({ label, agentClass, choice, isMatch }) {
+function AgentRow({ label, agentClass, choice, choiceLabel, isMatch }) {
   return (
     <div className="resolution-agent-row">
       <div className={`resolution-agent-name ${agentClass}`}>{label}</div>
       <div className="resolution-agent-line" />
       <div className="resolution-agent-choice">
-        <span className="mono" style={{ fontSize: 12 }}>{choice}</span>
+        <span style={{ fontSize: 12 }}>{choiceLabel || choice}</span>
         <div className={`resolution-agent-tick ${isMatch ? 'match' : 'differ'}`}>
           {isMatch ? '✓' : '✕'}
         </div>
@@ -24,31 +26,31 @@ function AgentRow({ label, agentClass, choice, isMatch }) {
 function ConvergenceCard({ resolution, featureVector, optimizerOutput }) {
   const finalOpt = lookupOption(featureVector, resolution.final_option_id);
   const routingOpt = optimizerOutput?.ranked_options?.find(o => o.option_id === resolution.final_option_id);
+  const finalLabel = formatRouteOption(resolution.final_option_id, featureVector);
 
   return (
     <div className="resolution-card convergence">
       <div className="resolution-decision-block">
         <div className="resolution-decision-label">Final Route</div>
-        <div className="resolution-decision-id mono">{resolution.final_option_id}</div>
+        <div className="resolution-decision-id">{finalLabel}</div>
         <div className="resolution-decision-meta">
-          {finalOpt?.wh && <span>{finalOpt.wh.name}</span>}
-          {finalOpt?.drv && <span>{finalOpt.drv.name} ({finalOpt.drv.vehicle_type})</span>}
           {routingOpt && (
             <>
               <span className="mono">${routingOpt.estimated_cost_gbp.toFixed(2)}</span>
               <span className="mono">~{routingOpt.estimated_duration_hours.toFixed(1)}h</span>
             </>
           )}
+          {finalOpt?.drv && <span>{finalOpt.drv.vehicle_type}</span>}
         </div>
       </div>
 
       <div className="resolution-agents-block">
-        <AgentRow label="OPTIMIZER" agentClass="optimizer" choice={resolution.optimizer_choice} isMatch={true} />
-        <AgentRow label="REASONER"  agentClass="reasoner"  choice={resolution.reasoner_choice}  isMatch={true} />
+        <AgentRow label="Optimizer" agentClass="optimizer" choice={resolution.optimizer_choice} choiceLabel={formatRouteOption(resolution.optimizer_choice, featureVector)} isMatch={true} />
+        <AgentRow label="Reasoner"  agentClass="reasoner"  choice={resolution.reasoner_choice}  choiceLabel={formatRouteOption(resolution.reasoner_choice, featureVector)}  isMatch={true} />
       </div>
 
       <div className="resolution-explanation">
-        {resolution.explanation || 'Both checks agree this route is the safest and fastest balance.'}
+        {sanitizeOptionIds(resolution.explanation) || 'Both checks agree this route is the safest and fastest balance.'}
       </div>
     </div>
   );
@@ -58,27 +60,27 @@ function QualificationCard({ resolution, featureVector, optimizerOutput, reasone
   const finalOpt = lookupOption(featureVector, resolution.final_option_id);
   const routingOpt = optimizerOutput?.ranked_options?.find(o => o.option_id === resolution.final_option_id);
   const flags = reasonerConclusion?.flags ?? [];
+  const finalLabel = formatRouteOption(resolution.final_option_id, featureVector);
 
   return (
     <div className="resolution-card qualification">
       <div className="resolution-decision-block">
-        <div className="resolution-decision-label">Final Route - Confirmed with Conditions</div>
-        <div className="resolution-decision-id mono">{resolution.final_option_id}</div>
+        <div className="resolution-decision-label">Final Route — Confirmed with Conditions</div>
+        <div className="resolution-decision-id">{finalLabel}</div>
         <div className="resolution-decision-meta">
-          {finalOpt?.wh && <span>{finalOpt.wh.name}</span>}
-          {finalOpt?.drv && <span>{finalOpt.drv.name} ({finalOpt.drv.vehicle_type})</span>}
           {routingOpt && (
             <>
               <span className="mono">${routingOpt.estimated_cost_gbp.toFixed(2)}</span>
               <span className="mono">~{routingOpt.estimated_duration_hours.toFixed(1)}h</span>
             </>
           )}
+          {finalOpt?.drv && <span>{finalOpt.drv.vehicle_type}</span>}
         </div>
       </div>
 
       <div className="resolution-agents-block">
-        <AgentRow label="OPTIMIZER" agentClass="optimizer" choice={resolution.optimizer_choice} isMatch={true} />
-        <AgentRow label="REASONER"  agentClass="reasoner"  choice={resolution.reasoner_choice}  isMatch={true} />
+        <AgentRow label="Optimizer" agentClass="optimizer" choice={resolution.optimizer_choice} choiceLabel={formatRouteOption(resolution.optimizer_choice, featureVector)} isMatch={true} />
+        <AgentRow label="Reasoner"  agentClass="reasoner"  choice={resolution.reasoner_choice}  choiceLabel={formatRouteOption(resolution.reasoner_choice, featureVector)}  isMatch={true} />
       </div>
 
       {flags.length > 0 && (
@@ -94,7 +96,7 @@ function QualificationCard({ resolution, featureVector, optimizerOutput, reasone
       )}
 
       <div className="resolution-explanation">
-        {resolution.explanation || 'This route is approved, but the flagged items need monitoring during execution.'}
+        {sanitizeOptionIds(resolution.explanation) || 'This route is approved, but the flagged items need monitoring during execution.'}
       </div>
     </div>
   );
@@ -113,10 +115,9 @@ function OverrideCard({ resolution, featureVector, optimizerOutput, reasonerConc
       <div className="override-comparison">
         <div className="override-side">
           <div className="override-side-label optimizer">Optimizer Recommendation</div>
-          <div className="override-option-id mono">{resolution.optimizer_choice}</div>
+          <div className="override-option-id">{formatRouteOption(resolution.optimizer_choice, featureVector)}</div>
           <div className="override-option-detail">
-            {optOpt?.wh && <span>{optOpt.wh.name}</span>}
-            {optOpt?.drv && <span>{optOpt.drv.name} ({optOpt.drv.vehicle_type})</span>}
+            {optOpt?.drv && <span>{optOpt.drv.vehicle_type}</span>}
             {optRouting && (
               <>
                 <span className="mono">${optRouting.estimated_cost_gbp.toFixed(2)}</span>
@@ -128,10 +129,9 @@ function OverrideCard({ resolution, featureVector, optimizerOutput, reasonerConc
 
         <div className="override-side">
           <div className="override-side-label reasoner">Reasoner Recommendation</div>
-          <div className="override-option-id mono">{resolution.reasoner_choice}</div>
+          <div className="override-option-id">{formatRouteOption(resolution.reasoner_choice, featureVector)}</div>
           <div className="override-option-detail">
-            {reaOpt?.wh && <span>{reaOpt.wh.name}</span>}
-            {reaOpt?.drv && <span>{reaOpt.drv.name} ({reaOpt.drv.vehicle_type})</span>}
+            {reaOpt?.drv && <span>{reaOpt.drv.vehicle_type}</span>}
             {reaRouting && (
               <>
                 <span className="mono">${reaRouting.estimated_cost_gbp.toFixed(2)}</span>
@@ -143,11 +143,11 @@ function OverrideCard({ resolution, featureVector, optimizerOutput, reasonerConc
       </div>
 
       <div className="resolution-decision-block">
-        <div className="resolution-decision-label">Final Route - Override Applied</div>
-        <div className="resolution-decision-id mono">{resolution.final_option_id}</div>
+        <div className="resolution-decision-label">Final Route — Override Applied</div>
+        <div className="resolution-decision-id">{formatRouteOption(resolution.final_option_id, featureVector)}</div>
         <div className="resolution-agents-block" style={{ padding: '12px 0 0', borderTop: 'none' }}>
-          <AgentRow label="OPTIMIZER" agentClass="optimizer" choice={resolution.optimizer_choice} isMatch={false} />
-          <AgentRow label="REASONER"  agentClass="reasoner"  choice={resolution.reasoner_choice}  isMatch={true} />
+          <AgentRow label="Optimizer" agentClass="optimizer" choice={resolution.optimizer_choice} choiceLabel={formatRouteOption(resolution.optimizer_choice, featureVector)} isMatch={false} />
+          <AgentRow label="Reasoner"  agentClass="reasoner"  choice={resolution.reasoner_choice}  choiceLabel={formatRouteOption(resolution.reasoner_choice, featureVector)}  isMatch={true} />
         </div>
       </div>
 
@@ -165,8 +165,8 @@ function OverrideCard({ resolution, featureVector, optimizerOutput, reasonerConc
 
       {overrideReason && (
         <div className="override-reason-block">
-          <div className="override-reason-label">Why We Overrode</div>
-          <div className="override-reason-text">{overrideReason}</div>
+          <div className="override-reason-label">Why the Reasoner Overrode</div>
+          <div className="override-reason-text">{sanitizeOptionIds(overrideReason)}</div>
         </div>
       )}
     </div>

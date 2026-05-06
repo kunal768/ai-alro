@@ -1,3 +1,5 @@
+import { capitalizePriority, formatCurrencyUSD } from '../utils/formatters.js';
+
 function extractSignals(fv) {
   const wh = fv.warehouse_options?.[0];
   const drv = fv.available_drivers?.[0];
@@ -72,14 +74,14 @@ function extractSignals(fv) {
       key: 'priority',
       label: 'Order Priority',
       value: priorityVal,
-      display: (fv.priority ?? 'standard').toUpperCase(),
+      display: capitalizePriority(fv.priority ?? 'standard'),
       category: fv.priority === 'urgent' || fv.priority === 'critical' ? 'risk' : 'neutral',
     },
     {
       key: 'order_value',
       label: 'Order Value',
       value: orderVal,
-      display: `£${(fv.order_value ?? 0).toLocaleString('en-GB', { minimumFractionDigits: 2 })}`,
+      display: formatCurrencyUSD(fv.order_value ?? 0),
       category: 'neutral',
     },
   ];
@@ -115,7 +117,7 @@ export default function Phase1_Signals({ featureVector, signalRevealCount, phase
             {' · '}
             {featureVector.cargo_type}
             {' · '}
-            {featureVector.priority?.toUpperCase()}
+            {capitalizePriority(featureVector.priority)}
             {' · '}
             {featureVector.time_window_hours}h window
           </div>

@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from intake_agent.enrichment import enrich_order
 from shared.models import OrderRequest
+from shared.utils import validate_bay_area
 
 ERP_URL = os.getenv("ERP_SERVICE_URL", "http://localhost:8001")
 
@@ -57,6 +58,10 @@ async def enrich(order: OrderRequest):
     The FeatureVector is the shared context consumed by both the Optimizer
     and Reasoner agents downstream.
     """
+    valid, geo_error = validate_bay_area(order.destination_lat, order.destination_lon)
+    if not valid:
+        raise HTTPException(status_code=422, detail=geo_error)
+
     try:
         feature_vector = await enrich_order(order, ERP_URL)
     except Exception as exc:

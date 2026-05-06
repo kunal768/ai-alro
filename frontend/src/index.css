@@ -192,9 +192,23 @@ body {
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 12px;
   pointer-events: auto;
+}
+
+.select-error-banner {
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: 8px;
+  color: var(--red);
+  font-size: 13px;
+  max-width: 640px;
+  padding: 10px 16px;
+  text-align: center;
+  width: 100%;
 }
 
 .sidebar-section {
@@ -1454,6 +1468,242 @@ body {
   border: 1px solid var(--border-subtle);
   max-width: 1000px;
   width: 100%;
+}
+
+/* ── Scenario selector tabs ──────────────────────────────────────────────── */
+
+.scenario-selector-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 8px;
+}
+
+.scenario-tab {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 14px;
+  transition: all 0.15s;
+}
+
+.scenario-tab:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.scenario-tab.active {
+  color: var(--blue);
+  border-color: var(--blue);
+  background: rgba(74, 127, 224, 0.08);
+}
+
+/* ── Manual order form ───────────────────────────────────────────────────── */
+
+.manual-order-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.manual-order-presets {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.manual-preset-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.manual-preset-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.manual-preset-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 4px 10px;
+  transition: all 0.15s;
+}
+
+.manual-preset-btn:hover {
+  background: rgba(74, 127, 224, 0.12);
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.manual-order-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.manual-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.manual-field-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.manual-field-optional {
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+.manual-field-input {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 7px 10px;
+  outline: none;
+  transition: border-color 0.15s;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.manual-field-input:focus {
+  border-color: var(--blue);
+}
+
+.manual-field-input option {
+  background: #1a1d2e;
+}
+
+.manual-order-error {
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 6px;
+  color: var(--red);
+  font-size: 12px;
+  padding: 8px 12px;
+}
+
+.manual-order-submit {
+  align-self: flex-start;
+  background: var(--blue);
+  border: none;
+  border-radius: 7px;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 20px;
+  transition: opacity 0.15s;
+}
+
+.manual-order-submit:hover {
+  opacity: 0.88;
+}
+
+/* ── Address search ──────────────────────────────────────────────────────── */
+
+.address-search-wrap {
+  position: relative;
+}
+
+.address-search-spinner {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border-subtle);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.address-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #1a1d2e;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  z-index: 1000;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.address-suggestion-item {
+  cursor: pointer;
+  font-size: 11px;
+  padding: 7px 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.address-suggestion-item:hover {
+  background: rgba(74, 127, 224, 0.12);
+  color: var(--text-primary);
+}
+
+.address-selected-badge {
+  font-size: 10px;
+  color: var(--green, #34d399);
+  margin-top: 4px;
+  padding-left: 2px;
+}
+
+/* ── Map legend ──────────────────────────────────────────────────────────── */
+
+.map-legend {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  background: rgba(11, 13, 20, 0.85);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  pointer-events: none;
+  z-index: 800;
+  backdrop-filter: blur(8px);
+}
+
+.map-legend-item {
+  color: var(--text-secondary);
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.final-route-leg {
+  font-size: 11px;
+  margin-bottom: 4px;
 }
 
 /* ── Reasoner markdown ───────────────────────────────────────────────────── */

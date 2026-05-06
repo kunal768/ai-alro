@@ -155,7 +155,7 @@ async def run_reasoning(
     })
 
     # ── Resolution Layer ───────────────────────────────────────────────────────
-    resolution = resolve(optimizer_output, reasoner_output)
+    resolution = resolve(optimizer_output, reasoner_output, feature_vector)
 
     yield _evt("resolution", {"type": "resolution", **resolution.model_dump()})
     yield _evt("done", {"type": "done"})

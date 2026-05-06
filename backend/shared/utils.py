@@ -44,6 +44,24 @@ _ZONE_CENTROIDS: dict[str, tuple[float, float]] = {
 }
 
 
+_BAY_AREA_BOUNDS = {
+    "lat_min": 36.9, "lat_max": 38.3,
+    "lon_min": -122.9, "lon_max": -121.4,
+}
+
+
+def validate_bay_area(lat: float, lon: float) -> tuple[bool, str | None]:
+    """Return (True, None) if within Bay Area service region, else (False, user-friendly message)."""
+    b = _BAY_AREA_BOUNDS
+    if b["lat_min"] <= lat <= b["lat_max"] and b["lon_min"] <= lon <= b["lon_max"]:
+        return True, None
+    return False, (
+        f"Destination ({lat:.4f}, {lon:.4f}) is outside the Bay Area service region. "
+        "Please enter coordinates within the San Francisco Bay Area "
+        "(roughly lat 36.9–38.3, lon -122.9 to -121.4)."
+    )
+
+
 def classify_zone(lat: float, lon: float) -> str:
     """Return the zone_id for a given lat/lon coordinate.
 

@@ -47,6 +47,7 @@ export default function App() {
     isStreaming,
     mapState,
     startDeliberation,
+    startManualOrder,
     reset,
   } = useDeliberation();
 
@@ -163,7 +164,12 @@ export default function App() {
           <div className="app-map-center">
             {phase === 'select' && (
               <div className="scenario-overlay">
-                <ScenarioSelector onSelect={startDeliberation} />
+                {errorState && (
+                  <div className="select-error-banner">
+                    {errorState.message}
+                  </div>
+                )}
+                <ScenarioSelector onSelect={startDeliberation} onManualOrder={startManualOrder} />
               </div>
             )}
           </div>

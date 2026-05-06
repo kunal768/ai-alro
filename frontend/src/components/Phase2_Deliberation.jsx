@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { formatWarehouse, formatDriver } from '../utils/formatters.js';
 
 function lookupNames(featureVector, warehouseId, driverId) {
   const wh = featureVector?.warehouse_options?.find(w => w.warehouse_id === warehouseId);
@@ -28,12 +29,12 @@ function getAgreementState(reasonerText, reasonerConclusion) {
 }
 
 const AGREEMENT_TEXT = {
-  neutral:    'TRACKING',
-  converging: 'CONVER-\nGING',
-  diverging:  'DIVER-\nGING',
-  confirmed:  'CONFIR-\nMED',
-  qualified:  'QUALIF-\nIED',
-  overridden: 'OVER-\nRIDE',
+  neutral:    'Tracking',
+  converging: 'Converging',
+  diverging:  'Diverging',
+  confirmed:  'Confirmed',
+  qualified:  'Qualified',
+  overridden: 'Override',
 };
 
 export function OptimizerPanel({ optimizerOutput, featureVector }) {
@@ -49,8 +50,8 @@ export function OptimizerPanel({ optimizerOutput, featureVector }) {
           <div className="panel-agent-name optimizer">Optimizer</div>
           <div className="panel-agent-role">Quantitative Voice</div>
         </div>
-        <div className="label-caps mono" style={{ color: 'var(--text-muted)', fontSize: '9px' }}>
-          w₁={w1} w₂={w2} w₃={w3}
+        <div className="label-caps mono" style={{ color: 'var(--text-muted)', fontSize: '9px' }} title={`Timeliness ×${w1} · Cost ×${w2} · Proximity ×${w3}`}>
+          weights: {w1}/{w2}/{w3}
         </div>
       </div>
       <div className="panel-body">
@@ -61,9 +62,8 @@ export function OptimizerPanel({ optimizerOutput, featureVector }) {
             <div key={opt.option_id} className={`routing-option ${isTop ? 'top-choice' : ''}`}>
               <div className="routing-option-header">
                 <div className="routing-option-meta">
-                  <div className="routing-option-id">{opt.option_id}</div>
-                  <div className="routing-option-names">
-                    {warehouseName} · {driverName}
+                  <div className="routing-option-names" style={{ fontWeight: 600 }}>
+                    {formatWarehouse(opt.warehouse_id, warehouseName)} · {formatDriver(opt.driver_id, driverName)}
                     {vehicleType && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> ({vehicleType})</span>}
                   </div>
                 </div>
@@ -72,14 +72,14 @@ export function OptimizerPanel({ optimizerOutput, featureVector }) {
 
               <div className="composite-score">
                 <span className="composite-score-value">{opt.composite_score.toFixed(3)}</span>
-                <span className="composite-score-label">COMPOSITE</span>
+                <span className="composite-score-label">Score</span>
               </div>
 
               <div className="score-decomp">
                 {[
-                  { label: `TIME ×${w1}`, val: opt.timeliness_score, cls: 'timeliness', weighted: opt.timeliness_score * w1 },
-                  { label: `COST ×${w2}`, val: opt.cost_efficiency_score, cls: 'cost', weighted: opt.cost_efficiency_score * w2 },
-                  { label: `PROX ×${w3}`, val: opt.warehouse_proximity_score, cls: 'proximity', weighted: opt.warehouse_proximity_score * w3 },
+                  { label: 'Timeliness', val: opt.timeliness_score, cls: 'timeliness', weighted: opt.timeliness_score * w1 },
+                  { label: 'Cost', val: opt.cost_efficiency_score, cls: 'cost', weighted: opt.cost_efficiency_score * w2 },
+                  { label: 'Proximity', val: opt.warehouse_proximity_score, cls: 'proximity', weighted: opt.warehouse_proximity_score * w3 },
                 ].map(item => (
                   <div key={item.label} className="score-row">
                     <div className="score-row-label">{item.label}</div>
@@ -93,7 +93,7 @@ export function OptimizerPanel({ optimizerOutput, featureVector }) {
                   </div>
                 ))}
                 <div className="score-row">
-                  <div className="score-row-label" style={{ color: 'var(--red)' }}>ZONE RISK</div>
+                  <div className="score-row-label" style={{ color: 'var(--red)' }}>Zone Risk</div>
                   <div className="score-bar-track">
                     <div
                       className="score-bar-fill risk"
@@ -137,7 +137,7 @@ export function AgreementIndicator({ reasonerText, reasonerConclusion }) {
   return (
     <div className="agreement-strip">
       <div className={`agreement-badge state-${state}`}>
-        <div className="agreement-title">AGREE-{'\n'}MENT</div>
+        <div className="agreement-title">Agreement</div>
         <div className="agreement-dot" />
         <div className="agreement-word">{words}</div>
       </div>
