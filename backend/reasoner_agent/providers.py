@@ -15,6 +15,7 @@ from typing import AsyncIterator
 
 LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "anthropic").lower()
 LLM_MODEL: str = os.getenv("LLM_MODEL", "")
+LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0"))
 ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
@@ -41,6 +42,7 @@ async def _stream_anthropic(system: str, user: str, model: str) -> AsyncIterator
         max_tokens=2048,
         system=system,
         messages=[{"role": "user", "content": user}],
+        temperature=LLM_TEMPERATURE,
     ) as stream:
         async for text in stream.text_stream:
             if text:
@@ -70,6 +72,7 @@ async def _stream_openai_compatible(
         ],
         stream=True,
         max_tokens=2048,
+        temperature=LLM_TEMPERATURE,
     )
     async for chunk in stream:
         text = chunk.choices[0].delta.content or ""
@@ -107,4 +110,4 @@ async def stream_llm(system: str, user: str) -> AsyncIterator[str]:
 
 
 def provider_summary() -> dict:
-    return {"provider": LLM_PROVIDER, "model": _effective_model()}
+    return {"provider": LLM_PROVIDER, "model": _effective_model(), "temperature": LLM_TEMPERATURE}

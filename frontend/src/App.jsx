@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDeliberation } from './hooks/useDeliberation.js';
 import Header from './components/Header.jsx';
 import PhaseTrack from './components/PhaseTrack.jsx';
@@ -58,6 +58,16 @@ export default function App() {
   const [leftWidth, setLeftWidth] = useState(() => loadWidth('ui.leftSidebarWidth', LEFT_DEFAULT, LEFT_MIN, LEFT_MAX));
   const [rightWidth, setRightWidth] = useState(() => loadWidth('ui.rightSidebarWidth', RIGHT_DEFAULT, RIGHT_MIN, RIGHT_MAX));
   const [dragState, setDragState] = useState(null);
+  const [previewRouteId, setPreviewRouteId] = useState(null);
+
+  // Clear the preview whenever we leave the resolution phase
+  const prevPhaseRef = useRef(phase);
+  useEffect(() => {
+    if (prevPhaseRef.current !== phase) {
+      prevPhaseRef.current = phase;
+      if (phase !== 'resolution') setPreviewRouteId(null);
+    }
+  }, [phase]);
 
   const leftScale = useMemo(() => widthToScale(leftWidth, LEFT_DEFAULT), [leftWidth]);
   const rightScale = useMemo(() => widthToScale(rightWidth, RIGHT_DEFAULT), [rightWidth]);
@@ -104,7 +114,7 @@ export default function App() {
     <div className="app-shell">
       {/* Fixed map background — always mounted */}
       <div className="map-background">
-        <RouteMap mapState={mapState} />
+        <RouteMap mapState={{ ...mapState, previewRouteId }} />
       </div>
 
       {/* Fixed layout overlay */}
@@ -146,6 +156,9 @@ export default function App() {
                 <OptimizerPanel
                   optimizerOutput={optimizerOutput}
                   featureVector={signals}
+                  phase={phase}
+                  previewRouteId={previewRouteId}
+                  onRoutePreview={setPreviewRouteId}
                 />
               </div>
             )}

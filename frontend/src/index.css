@@ -802,6 +802,24 @@ body {
   background: var(--blue-glow);
 }
 
+.routing-option.route-previewed {
+  border-color: rgba(75, 127, 224, 0.5);
+  background: rgba(75, 127, 224, 0.06);
+}
+
+.routing-option-map-toggle {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.routing-option-map-toggle.active {
+  color: var(--blue);
+}
+
 .routing-option-header {
   display: flex;
   align-items: center;
@@ -1926,10 +1944,21 @@ body {
   position: relative;
 }
 
-.final-route-card {
+/* Container that stacks the final-route-card and alternate-route-card
+   growing upward from the bottom-right corner. */
+.route-cards-stack {
   position: absolute;
   right: 16px;
   bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  z-index: 800;
+  pointer-events: none;
+}
+
+.final-route-card {
   width: min(340px, 42vw);
   background: rgba(7, 8, 12, 0.92);
   border: 1px solid rgba(52, 211, 153, 0.35);
@@ -1940,6 +1969,25 @@ body {
   opacity: 0;
   transform: translateY(6px);
   transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+/* Alternate route detail card — same shape as final-route-card */
+.alternate-route-card {
+  width: min(340px, 42vw);
+  background: rgba(7, 8, 12, 0.92);
+  border: 1px solid rgba(75, 127, 224, 0.35);
+  border-radius: 10px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.alternate-route-card.visible {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .final-route-card.visible {

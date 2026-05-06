@@ -85,6 +85,7 @@ class RoutingOption(BaseModel):
     timeliness_score: float
     cost_efficiency_score: float
     warehouse_proximity_score: float
+    driver_proximity_score: float = 0.0
     zone_risk_penalty: float
     composite_score: float
     estimated_cost_gbp: float

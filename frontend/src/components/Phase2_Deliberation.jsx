@@ -37,11 +37,12 @@ const AGREEMENT_TEXT = {
   overridden: 'Override',
 };
 
-export function OptimizerPanel({ optimizerOutput, featureVector }) {
+export function OptimizerPanel({ optimizerOutput, featureVector, phase, previewRouteId, onRoutePreview }) {
   const { ranked_options, top_choice, weights_used } = optimizerOutput;
   const w1 = weights_used?.w1_timeliness ?? 0.4;
   const w2 = weights_used?.w2_cost_efficiency ?? 0.35;
   const w3 = weights_used?.w3_warehouse_proximity ?? 0.25;
+  const isResolution = phase === 'resolution';
 
   return (
     <div className="panel">
@@ -57,9 +58,22 @@ export function OptimizerPanel({ optimizerOutput, featureVector }) {
       <div className="panel-body">
         {ranked_options.map((opt, idx) => {
           const isTop = opt.option_id === top_choice.option_id;
+          const isPreviewed = isResolution && previewRouteId === opt.option_id;
           const { warehouseName, driverName, vehicleType } = lookupNames(featureVector, opt.warehouse_id, opt.driver_id);
+
+          const handleClick = () => {
+            if (!isResolution) return;
+            onRoutePreview(prev => prev === opt.option_id ? null : opt.option_id);
+          };
+
           return (
-            <div key={opt.option_id} className={`routing-option ${isTop ? 'top-choice' : ''}`}>
+            <div
+              key={opt.option_id}
+              className={`routing-option ${isTop ? 'top-choice' : ''} ${isPreviewed ? 'route-previewed' : ''}`}
+              style={isResolution ? { cursor: 'pointer' } : undefined}
+              onClick={handleClick}
+              title={isResolution ? (isPreviewed ? 'Click to deselect' : 'Click to focus on map') : undefined}
+            >
               <div className="routing-option-header">
                 <div className="routing-option-meta">
                   <div className="routing-option-names" style={{ fontWeight: 600 }}>
@@ -67,7 +81,12 @@ export function OptimizerPanel({ optimizerOutput, featureVector }) {
                     {vehicleType && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> ({vehicleType})</span>}
                   </div>
                 </div>
-                {isTop && <div className="routing-option-badge">TOP CHOICE</div>}
+                {isTop && !isResolution && <div className="routing-option-badge">TOP CHOICE</div>}
+                {isResolution && (
+                  <div className={`routing-option-map-toggle ${isPreviewed ? 'active' : ''}`}>
+                    {isPreviewed ? '● Map' : '○ Map'}
+                  </div>
+                )}
               </div>
 
               <div className="composite-score">

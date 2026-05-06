@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, Fragment } from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import 'leaflet-polylinedecorator';
 import { formatWarehouse, formatDriver } from '../utils/formatters.js';
 
 const BAY_AREA_CENTER = [37.7749, -122.4194];
@@ -82,12 +83,42 @@ const DESTINATION_ICON  = makeDestinationIcon();
 const DRIVER_ICON_ON    = makeDriverIcon(true);
 const DRIVER_ICON_OFF   = makeDriverIcon(false);
 
+// ── Rank colour palette ────────────────────────────────────────────────────────
+
+const RANK_PALETTE = ['#4b7fe0', '#22d3ee', '#f59e0b', '#ec4899'];
+const rankColor = (rank) => RANK_PALETTE[(rank - 1) % RANK_PALETTE.length];
+
+// ── Directional arrow decorator ────────────────────────────────────────────────
+
+function ArrowDecorator({ positions, color, opacity = 1 }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!positions || positions.length < 2) return;
+    if (!L.polylineDecorator || !L.Symbol?.arrowHead) return;
+    const dec = L.polylineDecorator(positions, {
+      patterns: [{
+        offset: '50%',
+        repeat: 0,
+        symbol: L.Symbol.arrowHead({
+          pixelSize: 10,
+          polygon: false,
+          pathOptions: { stroke: true, color, weight: 2, opacity },
+        }),
+      }],
+    });
+    dec.addTo(map);
+    return () => { try { dec.remove(); } catch {} };
+  }, [positions, color, opacity, map]);
+  return null;
+}
+
 // ── Map behaviour components ───────────────────────────────────────────────────
 
 function MapController({ mapState }) {
   const map = useMap();
-  const prevDestRef   = useRef(null);
-  const prevFinalRef  = useRef(null);
+  const prevDestRef    = useRef(null);
+  const prevFinalRef   = useRef(null);
+  const prevPreviewRef = useRef(undefined); // undefined sentinel so null triggers first run
 
   // Fly to destination when it first appears
   useEffect(() => {
@@ -98,7 +129,7 @@ function MapController({ mapState }) {
     map.flyTo([dest.lat, dest.lon], 11, { duration: 1.2 });
   }, [mapState?.destination, map]);
 
-  // Fit bounds to full final route (both legs) whenever it changes
+  // Fit bounds to full final route (both legs) whenever it first resolves
   useEffect(() => {
     const fr = mapState?.finalRoute;
     if (!fr) return;
@@ -108,7 +139,6 @@ function MapController({ mapState }) {
     const pts = [];
     if (fr.legACoords?.length) pts.push(...fr.legACoords);
     if (fr.legBCoords?.length) pts.push(...fr.legBCoords);
-    // Fallbacks if geometry not yet loaded
     if (pts.length === 0) {
       if (fr.driverLat && fr.driverLon) pts.push([fr.driverLat, fr.driverLon]);
       pts.push([fr.warehouseLat, fr.warehouseLon]);
@@ -118,6 +148,44 @@ function MapController({ mapState }) {
       map.fitBounds(pts, { padding: [60, 60], maxZoom: 14, animate: true, duration: 1 });
     }
   }, [mapState?.finalRoute, map]);
+
+  // Rezoom to fit whichever route the user selects from the scoring cards
+  useEffect(() => {
+    const previewRouteId = mapState?.previewRouteId;
+    if (prevPreviewRef.current === previewRouteId) return;
+    prevPreviewRef.current = previewRouteId;
+
+    const finalRoute = mapState?.finalRoute;
+    if (!finalRoute) return; // not in resolution yet
+
+    const pts = [];
+
+    if (!previewRouteId || previewRouteId === finalRoute.optionId) {
+      // No selection, or best route explicitly selected — fit to final route
+      if (finalRoute.legACoords?.length) pts.push(...finalRoute.legACoords);
+      if (finalRoute.legBCoords?.length) pts.push(...finalRoute.legBCoords);
+      if (pts.length === 0) {
+        if (finalRoute.driverLat && finalRoute.driverLon) pts.push([finalRoute.driverLat, finalRoute.driverLon]);
+        pts.push([finalRoute.warehouseLat, finalRoute.warehouseLon]);
+        pts.push([finalRoute.destLat,      finalRoute.destLon]);
+      }
+    } else {
+      // Alternate selected — fit to that route's geometry
+      const route = (mapState?.candidateRoutes ?? []).find(r => r.optionId === previewRouteId);
+      if (!route) return;
+      if (route.legACoords?.length) pts.push(...route.legACoords);
+      if (route.pathCoords?.length) pts.push(...route.pathCoords);
+      if (pts.length === 0) {
+        if (route.driverLat && route.driverLon) pts.push([route.driverLat, route.driverLon]);
+        pts.push([route.warehouseLat, route.warehouseLon]);
+        pts.push([route.destLat,      route.destLon]);
+      }
+    }
+
+    if (pts.length >= 2) {
+      map.fitBounds(pts, { padding: [60, 60], maxZoom: 14, animate: true, duration: 1 });
+    }
+  }, [mapState?.previewRouteId, mapState?.finalRoute, mapState?.candidateRoutes, map]);
 
   return null;
 }
@@ -131,8 +199,20 @@ export default function RouteMap({ mapState }) {
   const dest            = mapState?.destination;
   const drivers         = mapState?.drivers ?? [];
   const candidateRoutes = mapState?.candidateRoutes ?? [];
-  const selectedRoute   = mapState?.selectedRoute;
   const finalRoute      = mapState?.finalRoute;
+  const isResolved      = !!finalRoute;
+
+  // Route selected via scoring-card click (null = best route / default)
+  const previewRoute = isResolved && mapState?.previewRouteId
+    ? (candidateRoutes.find(r => r.optionId === mapState.previewRouteId) ?? null)
+    : null;
+
+  // When the top/best route is explicitly selected we still show the final route geometry
+  const isBestSelected   = !!previewRoute && previewRoute.optionId === finalRoute?.optionId;
+  // Show final route when nothing is selected OR the best is explicitly selected
+  const showFinalOnMap   = !isResolved || !previewRoute || isBestSelected;
+  // Show an alternate overlay when a non-final candidate is selected
+  const alternatePreview = previewRoute && !isBestSelected ? previewRoute : null;
 
   const legBPositions = (route) => (
     route?.legBCoords?.length >= 2 ? route.legBCoords :
@@ -201,32 +281,72 @@ export default function RouteMap({ mapState }) {
           </Marker>
         )}
 
-        {/* Candidate routes — grey dashed Warehouse→Dest */}
-        {candidateRoutes.map((route) => (
-          <Polyline
-            key={route.optionId}
-            positions={legBPositions(route)}
-            pathOptions={{ color: '#4b5563', weight: route.rank === 1 ? 2.5 : 1.5, dashArray: '6 4', opacity: 0.7 }}
-          >
-            <Tooltip sticky opacity={0.9}>
-              <span style={{ fontSize: 10, fontWeight: 600 }}>Rank {route.rank}</span><br />
-              <span style={{ fontSize: 10 }}>{formatWarehouse(route.warehouseId, route.warehouseName)}</span><br />
-              <span style={{ fontSize: 10 }}>{formatDriver(route.driverId, route.driverName)}</span><br />
-              <span style={{ fontSize: 10, color: '#9ca3af' }}>Score: {route.score?.toFixed(3)}</span>
-            </Tooltip>
-          </Polyline>
-        ))}
+        {/* Candidate routes — only rendered during deliberation; hidden after resolution */}
+        {!isResolved && candidateRoutes.map((route) => {
+          const color   = rankColor(route.rank);
+          const isTop   = route.rank === 1;
+          const bWeight  = isTop ? 3.5 : 2;
+          const bOpacity = isTop ? 1.0 : 0.65;
+          const aOpacity = isTop ? 0.8 : 0.5;
 
-        {/* Selected route — blue highlight */}
-        {selectedRoute && (
-          <Polyline
-            positions={legBPositions(selectedRoute)}
-            pathOptions={{ color: '#4b7fe0', weight: 3.5, opacity: 0.9 }}
-          />
+          return (
+            <Fragment key={route.optionId}>
+              {/* Leg A: driver → warehouse (dashed) */}
+              {route.legACoords?.length >= 2 && (
+                <Polyline
+                  positions={route.legACoords}
+                  pathOptions={{ color, weight: isTop ? 2.5 : 1.5, dashArray: '8 5', opacity: aOpacity, lineCap: 'round' }}
+                />
+              )}
+              {route.legACoords?.length >= 2 && (
+                <ArrowDecorator positions={route.legACoords} color={color} opacity={aOpacity} />
+              )}
+              {/* Leg B: warehouse → destination */}
+              <Polyline
+                positions={legBPositions(route)}
+                pathOptions={{ color, weight: bWeight, dashArray: isTop ? undefined : '6 4', opacity: bOpacity, lineCap: 'round' }}
+              >
+                <Tooltip sticky opacity={0.9}>
+                  <span style={{ fontSize: 10, fontWeight: 600 }}>Rank {route.rank}</span><br />
+                  <span style={{ fontSize: 10 }}>{formatWarehouse(route.warehouseId, route.warehouseName)}</span><br />
+                  <span style={{ fontSize: 10 }}>{formatDriver(route.driverId, route.driverName)}</span><br />
+                  <span style={{ fontSize: 10, color: '#9ca3af' }}>Score: {route.score?.toFixed(3)}</span>
+                </Tooltip>
+              </Polyline>
+              <ArrowDecorator positions={legBPositions(route)} color={color} opacity={bOpacity} />
+            </Fragment>
+          );
+        })}
+
+        {/* Alternate preview — only rendered when a non-final candidate is selected */}
+        {alternatePreview && (
+          <Fragment key={`preview-${alternatePreview.optionId}`}>
+            {alternatePreview.legACoords?.length >= 2 && (
+              <Polyline
+                positions={alternatePreview.legACoords}
+                pathOptions={{ color: rankColor(alternatePreview.rank), weight: 2.5, dashArray: '8 5', opacity: 0.8, lineCap: 'round' }}
+              />
+            )}
+            {alternatePreview.legACoords?.length >= 2 && (
+              <ArrowDecorator positions={alternatePreview.legACoords} color={rankColor(alternatePreview.rank)} opacity={0.8} />
+            )}
+            <Polyline
+              positions={legBPositions(alternatePreview)}
+              pathOptions={{ color: rankColor(alternatePreview.rank), weight: 4, dashArray: '6 4', opacity: 0.9, lineCap: 'round' }}
+            >
+              <Tooltip sticky opacity={0.95}>
+                <span style={{ fontSize: 10, fontWeight: 600 }}>Rank {alternatePreview.rank} — Alternate</span><br />
+                <span style={{ fontSize: 10 }}>{formatWarehouse(alternatePreview.warehouseId, alternatePreview.warehouseName)}</span><br />
+                <span style={{ fontSize: 10 }}>{formatDriver(alternatePreview.driverId, alternatePreview.driverName)}</span><br />
+                <span style={{ fontSize: 10, color: '#9ca3af' }}>Score: {alternatePreview.score?.toFixed(3)}</span>
+              </Tooltip>
+            </Polyline>
+            <ArrowDecorator positions={legBPositions(alternatePreview)} color={rankColor(alternatePreview.rank)} opacity={0.9} />
+          </Fragment>
         )}
 
-        {/* Final route — Leg A: Driver → Warehouse (cyan dashed) */}
-        {finalRoute?.legACoords?.length >= 2 && (
+        {/* Final route — only shown when no alternate is being previewed */}
+        {showFinalOnMap && finalRoute?.legACoords?.length >= 2 && (
           <Polyline
             positions={finalRoute.legACoords}
             pathOptions={{ color: '#22d3ee', weight: 4, dashArray: '8 5', opacity: 0.85, lineCap: 'round' }}
@@ -238,9 +358,7 @@ export default function RouteMap({ mapState }) {
             </Tooltip>
           </Polyline>
         )}
-
-        {/* Final route — Leg B: Warehouse → Destination (solid, decision color) */}
-        {finalRoute && (
+        {showFinalOnMap && finalRoute && (
           <Polyline
             positions={legBPositions(finalRoute)}
             pathOptions={{ color: decisionColor, weight: 7, opacity: 1.0, lineCap: 'round' }}
@@ -262,33 +380,72 @@ export default function RouteMap({ mapState }) {
         <div className="map-legend-item"><span style={{ color: '#34d399' }}>●</span> Driver (available)</div>
         <div className="map-legend-item"><span style={{ color: '#fbbf24' }}>●</span> Driver (busy)</div>
         <div className="map-legend-item"><span style={{ color: '#ef4444' }}>▼</span> Destination</div>
-        {finalRoute && <div className="map-legend-item"><span style={{ color: '#22d3ee' }}>╌</span> Pickup leg</div>}
-        {finalRoute && <div className="map-legend-item" style={{ color: decisionColor }}>━ Delivery leg</div>}
+        {candidateRoutes.length > 0 && !isResolved && (
+          <div className="map-legend-item">
+            {[1, 2, 3, 4].map(r => (
+              <span key={r} style={{ color: rankColor(r), marginRight: 2 }}>■</span>
+            ))}
+            Candidates (rank 1→4)
+          </div>
+        )}
+        {alternatePreview && (
+          <div className="map-legend-item">
+            <span style={{ color: rankColor(alternatePreview.rank) }}>╌</span> Rank {alternatePreview.rank} preview
+          </div>
+        )}
+        {showFinalOnMap && finalRoute && <div className="map-legend-item"><span style={{ color: '#22d3ee' }}>╌</span> Pickup leg</div>}
+        {showFinalOnMap && finalRoute && <div className="map-legend-item" style={{ color: decisionColor }}>━ Delivery leg</div>}
       </div>
 
-      {finalRoute && (
-        <div className={`final-route-card ${showFinalDetails ? 'visible' : ''}`}>
-          <button
-            type="button"
-            className="final-route-card-header"
-            onClick={() => setExpandFinalDetails(prev => !prev)}
-          >
-            <span className="final-route-card-title">Final Route</span>
-            <span className="final-route-card-pill">{decisionLabel}</span>
-            <span className="final-route-card-chevron">{expandFinalDetails ? '▾' : '▸'}</span>
-          </button>
-          {expandFinalDetails && (
-            <div className="final-route-card-body">
-              <div className="final-route-leg"><strong>Leg A (pickup):</strong> {formatDriver(finalRoute.driverId, finalRoute.driverName)} → {formatWarehouse(finalRoute.warehouseId, finalRoute.warehouseName)}</div>
-              <div className="final-route-leg"><strong>Leg B (delivery):</strong> {formatWarehouse(finalRoute.warehouseId, finalRoute.warehouseName)} → Destination</div>
-              <div><strong>ETA:</strong>   {finalRoute.etaHours ? `${finalRoute.etaHours.toFixed(1)}h` : 'N/A'}</div>
-              <div><strong>Cost:</strong>  {finalRoute.cost ? `$${finalRoute.cost.toFixed(2)}` : 'N/A'}</div>
-              {finalRoute.score && <div><strong>Score:</strong> {finalRoute.score.toFixed(3)}</div>}
-              {finalRoute.reason && <div className="final-route-card-reason"><strong>Why:</strong> {finalRoute.reason}</div>}
+      {/* Stacked detail cards (bottom-right) */}
+      <div className="route-cards-stack">
+        {alternatePreview && (
+          <div className="alternate-route-card visible">
+            <div className="final-route-card-header" style={{ borderLeft: `3px solid ${rankColor(alternatePreview.rank)}` }}>
+              <span className="final-route-card-title" style={{ color: rankColor(alternatePreview.rank) }}>
+                Rank {alternatePreview.rank} — Alternate
+              </span>
+              <span className="final-route-card-pill" style={{ color: rankColor(alternatePreview.rank) }}>
+                {alternatePreview.score?.toFixed(3)}
+              </span>
+              <span className="final-route-card-chevron" />
             </div>
-          )}
-        </div>
-      )}
+            <div className="final-route-card-body">
+              <div><strong>ETA:</strong> {alternatePreview.etaHours ? `${alternatePreview.etaHours.toFixed(1)}h` : 'N/A'}</div>
+              <div><strong>Cost:</strong> {alternatePreview.cost ? `$${alternatePreview.cost.toFixed(2)}` : 'N/A'}</div>
+              {alternatePreview.lesser_reason && (
+                <div className="final-route-card-reason">
+                  <strong>Why not chosen:</strong> {alternatePreview.lesser_reason}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {showFinalOnMap && finalRoute && (
+          <div className={`final-route-card ${showFinalDetails ? 'visible' : ''}`}>
+            <button
+              type="button"
+              className="final-route-card-header"
+              onClick={() => setExpandFinalDetails(prev => !prev)}
+            >
+              <span className="final-route-card-title">Final Route</span>
+              <span className="final-route-card-pill">{decisionLabel}</span>
+              <span className="final-route-card-chevron">{expandFinalDetails ? '▾' : '▸'}</span>
+            </button>
+            {expandFinalDetails && (
+              <div className="final-route-card-body">
+                <div className="final-route-leg"><strong>Leg A (pickup):</strong> {formatDriver(finalRoute.driverId, finalRoute.driverName)} → {formatWarehouse(finalRoute.warehouseId, finalRoute.warehouseName)}</div>
+                <div className="final-route-leg"><strong>Leg B (delivery):</strong> {formatWarehouse(finalRoute.warehouseId, finalRoute.warehouseName)} → Destination</div>
+                <div><strong>ETA:</strong>   {finalRoute.etaHours ? `${finalRoute.etaHours.toFixed(1)}h` : 'N/A'}</div>
+                <div><strong>Cost:</strong>  {finalRoute.cost ? `$${finalRoute.cost.toFixed(2)}` : 'N/A'}</div>
+                {finalRoute.score && <div><strong>Score:</strong> {finalRoute.score.toFixed(3)}</div>}
+                {finalRoute.reason && <div className="final-route-card-reason"><strong>Why:</strong> {finalRoute.reason}</div>}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

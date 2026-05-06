@@ -14,6 +14,34 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function explainGap(option, top) {
+  if (!top || option.optionId === top.optionId) return '';
+  const fields = [
+    {
+      delta: (top.timelinessScore ?? 0) - (option.timelinessScore ?? 0),
+      msg: (d) => `Lower timeliness — pickup ETA costs ${d.toFixed(2)} more score vs the chosen route.`,
+    },
+    {
+      delta: (option.zoneRiskPenalty ?? 0) - (top.zoneRiskPenalty ?? 0),
+      msg: () => `Higher zone risk penalty (${(option.zoneRiskPenalty ?? 0).toFixed(2)} vs ${(top.zoneRiskPenalty ?? 0).toFixed(2)}) on this destination.`,
+    },
+    {
+      delta: (top.driverProximityScore ?? 0) - (option.driverProximityScore ?? 0),
+      msg: (d) => `Driver is farther from the warehouse — ~${(d * 40).toFixed(0)} km additional pickup distance.`,
+    },
+    {
+      delta: (top.proximityScore ?? 0) - (option.proximityScore ?? 0),
+      msg: (d) => `Warehouse is ~${(d * 60).toFixed(0)} km farther from the destination.`,
+    },
+    {
+      delta: (top.costEfficiency ?? 0) - (option.costEfficiency ?? 0),
+      msg: () => `Lower cost efficiency (${(option.costEfficiency ?? 0).toFixed(2)} vs ${(top.costEfficiency ?? 0).toFixed(2)}).`,
+    },
+  ];
+  const worst = fields.filter(f => f.delta > 0).sort((a, b) => b.delta - a.delta)[0];
+  return worst ? worst.msg(worst.delta) : 'Comparable score to the chosen route.';
+}
+
 function buildMapRoutes(fv, opt) {
   const warehouseMap = {};
   const driverMap = {};
@@ -24,23 +52,31 @@ function buildMapRoutes(fv, opt) {
     const wh  = warehouseMap[o.warehouse_id] ?? {};
     const drv = driverMap[o.driver_id] ?? {};
     return {
-      optionId:     o.option_id,
-      warehouseId:  o.warehouse_id,
-      driverId:     o.driver_id,
-      warehouseName: wh.name,
-      driverName:   drv.name,
-      warehouseLat: wh.lat ?? 0,
-      warehouseLon: wh.lon ?? 0,
-      driverLat:    drv.current_lat ?? 0,
-      driverLon:    drv.current_lon ?? 0,
-      destLat:      fv.destination_lat,
-      destLon:      fv.destination_lon,
-      rank:         idx + 1,
-      score:        o.composite_score,
-      etaHours:     o.estimated_duration_hours,
-      cost:         o.estimated_cost_gbp,
+      optionId:        o.option_id,
+      warehouseId:     o.warehouse_id,
+      driverId:        o.driver_id,
+      warehouseName:   wh.name,
+      driverName:      drv.name,
+      warehouseLat:    wh.lat ?? 0,
+      warehouseLon:    wh.lon ?? 0,
+      driverLat:       drv.current_lat ?? 0,
+      driverLon:       drv.current_lon ?? 0,
+      destLat:         fv.destination_lat,
+      destLon:         fv.destination_lon,
+      rank:            idx + 1,
+      score:           o.composite_score,
+      etaHours:        o.estimated_duration_hours,
+      cost:            o.estimated_cost_gbp,
+      timelinessScore:     o.timeliness_score,
+      costEfficiency:      o.cost_efficiency_score,
+      proximityScore:      o.warehouse_proximity_score,
+      driverProximityScore: o.driver_proximity_score ?? 0,
+      zoneRiskPenalty:     o.zone_risk_penalty,
     };
   });
+
+  const top = routes[0];
+  if (top) routes.forEach(r => { r.lesser_reason = explainGap(r, top); });
 
   const topOpt = opt.top_choice ?? opt.ranked_options?.[0];
   const topWh  = warehouseMap[topOpt?.warehouse_id] ?? {};
@@ -100,11 +136,19 @@ function buildFinalRouteFromData(optionId, fv, opt) {
 
 async function hydrateRoutesWithRoadGeometry(routes) {
   const enriched = await Promise.all(routes.map(async (route) => {
-    const pathCoords = await fetchRoadGeometry(
-      { lat: route.warehouseLat, lon: route.warehouseLon },
-      { lat: route.destLat, lon: route.destLon }
-    );
-    return { ...route, pathCoords };
+    const [pathCoords, legACoords] = await Promise.all([
+      fetchRoadGeometry(
+        { lat: route.warehouseLat, lon: route.warehouseLon },
+        { lat: route.destLat,      lon: route.destLon }
+      ),
+      (route.driverLat && route.driverLon)
+        ? fetchRoadGeometry(
+            { lat: route.driverLat,    lon: route.driverLon },
+            { lat: route.warehouseLat, lon: route.warehouseLon }
+          )
+        : Promise.resolve(null),
+    ]);
+    return { ...route, pathCoords, legACoords };
   }));
   return enriched;
 }
