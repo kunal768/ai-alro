@@ -57,10 +57,16 @@ rate ≤ 10%), state that clearly.
 Identify factors the reward function structurally cannot encode. Consider each:
 
 - Driver zone familiarity: Is the assigned driver familiar with the destination \
-zone? An unfamiliar driver in a high-complaint-rate zone compounds existing risk.
-- Time window feasibility: Add the estimated pickup ETA (minutes) to the zone's \
-average transit time (hours). Does the total fall within the order's time window? \
-If it is within 10 minutes of the deadline, call this out precisely.
+zone? When the top-ranked driver is unfamiliar with the destination zone AND that \
+zone has a complaint rate above 10% or delivery success rate below 88%, AND a \
+familiar alternative exists within a composite gap of 0.08 or less, this warrants \
+OVERRIDE — not QUALIFY. The score gap is too thin to accept compounded \
+familiarity risk in a chronically underperforming zone. QUALIFY is only \
+appropriate when no familiar alternative exists in the ranked list.
+- Time window feasibility: The timeliness score is 1.0 − (total_hours / window), \
+so a score of 0.0 means the route hits the deadline exactly and negative scores \
+are clamped. A timeliness below 0.3 means over 70% of the window is consumed — \
+flag this. If total duration exceeds the window the route is projected late.
 - Driver reliability: Does the driver's active delivery count or current load \
 create a reliability risk for this order?
 - Cargo risk: Does the cargo type (fragile, refrigerated, hazardous) create \

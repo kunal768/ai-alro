@@ -63,9 +63,9 @@ def _score(wh: dict, drv: dict, fv: dict, weights: dict) -> dict:
     # ── Timeliness ────────────────────────────────────────────────────────────
     pickup_h = pickup_minutes / 60.0
     total_h  = pickup_h + wh_to_dest_h
-    margin   = fv["time_window_hours"] - total_h
-    # Score = 0.5 when margin = 0 (just makes it), 1.0 when margin = time_window
-    timeliness = max(0.0, min(1.0, 0.5 + margin / fv["time_window_hours"]))
+    # 1.0 when instantaneous, 0.0 at deadline, negative (clamped) when late.
+    # Uses the full window range so fast routes score higher even when all fit.
+    timeliness = max(0.0, min(1.0, 1.0 - total_h / fv["time_window_hours"]))
 
     # ── Cost efficiency ───────────────────────────────────────────────────────
     est_cost = (

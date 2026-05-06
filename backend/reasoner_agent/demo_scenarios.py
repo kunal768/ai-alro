@@ -39,8 +39,7 @@ def _score_option(wh: dict, drv: dict, fv: dict, weights: dict) -> dict:
 
     pickup_h = pickup_minutes / 60.0
     total_h  = pickup_h + wh_to_dest_h
-    margin   = fv["time_window_hours"] - total_h
-    timeliness = max(0.0, min(1.0, 0.5 + margin / fv["time_window_hours"]))
+    timeliness = max(0.0, min(1.0, 1.0 - total_h / fv["time_window_hours"]))
 
     est_cost = (
         15.0
@@ -223,8 +222,8 @@ _SCENARIO_C_FV: dict = {
     "cargo_type": "general", "priority": "standard",
     "warehouse_options": [_wh("WH-OAK01", 12.6), _wh("WH-SF01", 22.1)],
     "available_drivers": [
-        {**_DRIVERS["DRV-001"], "estimated_pickup_minutes": 22.0},
-        {**_DRIVERS["DRV-009"], "estimated_pickup_minutes": 20.0},
+        {**_DRIVERS["DRV-001"], "current_lat": 37.8100, "current_lon": -122.2600, "estimated_pickup_minutes": 15.0},
+        {**_DRIVERS["DRV-009"], "active_deliveries": 1, "estimated_pickup_minutes": 20.0},
         {**_DRIVERS["DRV-007"], "estimated_pickup_minutes": 16.0},
     ],
     "zone_profile": {
