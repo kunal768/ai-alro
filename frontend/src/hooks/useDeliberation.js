@@ -3,7 +3,7 @@ import { MOCK_DATA } from '../mockData.js';
 import { parseSSEBuffer } from '../utils/sseParser.js';
 
 const DEMO_URL = (id) => `/api/reasoner/demo/${id}`;
-const SIGNAL_STAGGER_MS = 200;
+const SIGNAL_STAGGER_MS = 350;
 const SIGNAL_COUNT = 8;
 
 function delay(ms) {
@@ -67,7 +67,7 @@ async function simulateMockStream(scenarioId, abortSignal, callbacks) {
     const token = tokens[i];
     const isNewline = /^\n+$/.test(token);
     onToken(isNewline ? token : token + ' ');
-    await delay(isNewline ? 120 : 28 + Math.random() * 20);
+    await delay(isNewline ? 180 : 35 + Math.random() * 25);
   }
 
   await delay(350);
@@ -91,6 +91,7 @@ export function useDeliberation() {
   const [errorState, setErrorState] = useState(null);
   const [isDegraded, setIsDegraded] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [mapState, setMapState] = useState({ drivers: [], candidateRoutes: [] });
   const abortRef = useRef(null);
 
   const reset = useCallback(() => {
@@ -106,6 +107,7 @@ export function useDeliberation() {
     setErrorState(null);
     setIsDegraded(false);
     setIsStreaming(false);
+    setMapState({ drivers: [], candidateRoutes: [] });
   }, []);
 
   const startDeliberation = useCallback(async (scenario) => {
@@ -125,6 +127,7 @@ export function useDeliberation() {
     setErrorState(null);
     setIsDegraded(false);
     setIsStreaming(false);
+    setMapState({ drivers: [], candidateRoutes: [] });
 
     const mockFv  = MOCK_DATA[scenario.id].featureVector;
     const mockOpt = MOCK_DATA[scenario.id].optimizerOutput;
@@ -138,12 +141,30 @@ export function useDeliberation() {
     async function runAnimation(fv) {
       animStarted = true;
       setSignals(fv);
+
+      // Add destination and drivers to map
+      setMapState(prev => ({
+        ...prev,
+        destination: {
+          lat: fv.destination_lat,
+          lon: fv.destination_lon,
+          zone: fv.destination_zone_id,
+        },
+        drivers: (fv.available_drivers ?? []).map(d => ({
+          id: d.driver_id,
+          name: d.name,
+          lat: d.current_lat,
+          lon: d.current_lon,
+          vehicle_type: d.vehicle_type,
+        })),
+      }));
+
       for (let i = 1; i <= SIGNAL_COUNT; i++) {
         if (signal.aborted) { resolveAnim(); return; }
         await delay(SIGNAL_STAGGER_MS);
         setSignalRevealCount(i);
       }
-      await delay(700);
+      await delay(1200);
       resolveAnim();
     }
 
@@ -153,12 +174,61 @@ export function useDeliberation() {
 
     const streamCallbacks = {
       onScenarioData: (data) => {
-        setOptimizerOutput(data.optimizer_output ?? mockOpt);
-        runAnimation(data.feature_vector ?? mockFv); // fire-and-forget alongside stream
+        const opt = data.optimizer_output ?? mockOpt;
+        const fv = data.feature_vector ?? mockFv;
+        setOptimizerOutput(opt);
+        runAnimation(fv);
+
+        // Add candidate routes from optimizer output (additive)
+        const warehouseMap = {};
+        (fv.warehouse_options ?? []).forEach(w => { warehouseMap[w.warehouse_id] = w; });
+        const routes = (opt.ranked_options ?? []).map((o, idx) => {
+          const wh = warehouseMap[o.warehouse_id] ?? {};
+          return {
+            optionId: o.option_id,
+            warehouseLat: wh.lat ?? 0,
+            warehouseLon: wh.lon ?? 0,
+            destLat: fv.destination_lat,
+            destLon: fv.destination_lon,
+            rank: idx + 1,
+            score: o.composite_score,
+          };
+        });
+        const topOpt = opt.top_choice ?? opt.ranked_options?.[0];
+        const topWh = warehouseMap[topOpt?.warehouse_id] ?? {};
+        setMapState(prev => ({
+          ...prev,
+          candidateRoutes: [...(prev.candidateRoutes ?? []), ...routes],
+          selectedRoute: topOpt ? {
+            optionId: topOpt.option_id,
+            warehouseLat: topWh.lat ?? 0,
+            warehouseLon: topWh.lon ?? 0,
+            destLat: fv.destination_lat,
+            destLon: fv.destination_lon,
+          } : prev.selectedRoute,
+        }));
       },
       onToken:      (text) => setReasonerText(prev => prev + text),
       onConclusion: (data) => setReasonerConclusion(data),
-      onResolution: (data) => setResolution(data),
+      onResolution: (data) => {
+        setResolution(data);
+        // Set final route on map — find warehouse from candidateRoutes
+        setMapState(prev => {
+          const finalOpt = prev.candidateRoutes?.find(r => r.optionId === data.final_option_id);
+          return {
+            ...prev,
+            finalRoute: finalOpt ? {
+              optionId: finalOpt.optionId,
+              warehouseLat: finalOpt.warehouseLat,
+              warehouseLon: finalOpt.warehouseLon,
+              destLat: finalOpt.destLat,
+              destLon: finalOpt.destLon,
+              decision: data.state === 'convergence' ? 'confirm' :
+                        data.state === 'qualification' ? 'qualify' : 'override',
+            } : prev.finalRoute,
+          };
+        });
+      },
       onError:      (data) => { setErrorState(data); setIsDegraded(true); },
     };
 
@@ -173,6 +243,35 @@ export function useDeliberation() {
         if (!animStarted) {
           setOptimizerOutput(mockOpt);
           runAnimation(mockFv);
+
+          // Also build candidate routes for mock fallback
+          const warehouseMap = {};
+          (mockFv.warehouse_options ?? []).forEach(w => { warehouseMap[w.warehouse_id] = w; });
+          const routes = (mockOpt.ranked_options ?? []).map((o, idx) => {
+            const wh = warehouseMap[o.warehouse_id] ?? {};
+            return {
+              optionId: o.option_id,
+              warehouseLat: wh.lat ?? 0,
+              warehouseLon: wh.lon ?? 0,
+              destLat: mockFv.destination_lat,
+              destLon: mockFv.destination_lon,
+              rank: idx + 1,
+              score: o.composite_score,
+            };
+          });
+          const topOpt = mockOpt.top_choice ?? mockOpt.ranked_options?.[0];
+          const topWh = warehouseMap[topOpt?.warehouse_id] ?? {};
+          setMapState(prev => ({
+            ...prev,
+            candidateRoutes: [...(prev.candidateRoutes ?? []), ...routes],
+            selectedRoute: topOpt ? {
+              optionId: topOpt.option_id,
+              warehouseLat: topWh.lat ?? 0,
+              warehouseLon: topWh.lon ?? 0,
+              destLat: mockFv.destination_lat,
+              destLon: mockFv.destination_lon,
+            } : prev.selectedRoute,
+          }));
         }
         simulateMockStream(scenario.id, signal, streamCallbacks)
           .then(() => streamDoneResolve('done'));
@@ -210,6 +309,7 @@ export function useDeliberation() {
     errorState,
     isDegraded,
     isStreaming,
+    mapState,
     startDeliberation,
     reset,
   };

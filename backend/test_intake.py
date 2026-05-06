@@ -24,13 +24,13 @@ ERP_URL = "http://localhost:8001"
 
 SCENARIOS = [
     {
-        "label": "Scenario 1 — Standard delivery, Central London (Clean Convergence candidate)",
+        "label": "Scenario 1 — Standard delivery, SF Financial District (Clean Convergence candidate)",
         "payload": {
             "order_id": "TEST-001",
-            "destination_lat": 51.5155,
-            "destination_lon": -0.0922,
+            "destination_lat": 37.7910,
+            "destination_lon": -122.3990,
             "order_value": 1200.00,
-            "weight_kg": 35.0,
+            "weight_kg": 32.0,
             "time_window_hours": 4.0,
             "cargo_type": "general",
             "priority": "standard",
@@ -38,13 +38,13 @@ SCENARIOS = [
         },
     },
     {
-        "label": "Scenario 2 — Urgent fragile goods, East London (Qualification candidate)",
+        "label": "Scenario 2 — Urgent fragile goods, Oakland (Qualification candidate)",
         "payload": {
             "order_id": "TEST-002",
-            "destination_lat": 51.5150,
-            "destination_lon": 0.0350,
-            "order_value": 4800.00,
-            "weight_kg": 22.0,
+            "destination_lat": 37.8100,
+            "destination_lon": -122.2650,
+            "order_value": 5200.00,
+            "weight_kg": 20.0,
             "time_window_hours": 2.0,
             "cargo_type": "fragile",
             "priority": "urgent",
@@ -52,13 +52,13 @@ SCENARIOS = [
         },
     },
     {
-        "label": "Scenario 3 — Standard delivery, Outer East / Romford (Override / Fairness candidate)",
+        "label": "Scenario 3 — Standard delivery, Hayward (Override / Fairness candidate)",
         "payload": {
             "order_id": "TEST-003",
-            "destination_lat": 51.5640,
-            "destination_lon": 0.1960,
-            "order_value": 650.00,
-            "weight_kg": 60.0,
+            "destination_lat": 37.6688,
+            "destination_lon": -122.0808,
+            "order_value": 680.00,
+            "weight_kg": 55.0,
             "time_window_hours": 6.0,
             "cargo_type": "general",
             "priority": "standard",
@@ -135,7 +135,7 @@ def run_scenario(scenario: dict) -> None:
     print(sep)
     print(f"  order_id  : {payload['order_id']}")
     print(f"  cargo     : {payload['cargo_type']}   weight: {payload['weight_kg']} kg   "
-          f"value: £{payload['order_value']:,.0f}")
+          f"value: ${payload['order_value']:,.0f}")
     print(f"  priority  : {payload['priority']}   time window: {payload['time_window_hours']} h")
     print(f"  dest      : ({payload['destination_lat']}, {payload['destination_lon']})")
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 
 function lookupNames(featureVector, warehouseId, driverId) {
   const wh = featureVector?.warehouse_options?.find(w => w.warehouse_id === warehouseId);
@@ -35,7 +36,7 @@ const AGREEMENT_TEXT = {
   overridden: 'OVER-\nRIDE',
 };
 
-function OptimizerPanel({ optimizerOutput, featureVector }) {
+export function OptimizerPanel({ optimizerOutput, featureVector }) {
   const { ranked_options, top_choice, weights_used } = optimizerOutput;
   const w1 = weights_used?.w1_timeliness ?? 0.4;
   const w2 = weights_used?.w2_cost_efficiency ?? 0.35;
@@ -108,7 +109,7 @@ function OptimizerPanel({ optimizerOutput, featureVector }) {
               <div className="routing-option-footer">
                 <div className="routing-meta-item">
                   <div className="routing-meta-label">Est. Cost</div>
-                  <div className="routing-meta-value">£{opt.estimated_cost_gbp.toFixed(2)}</div>
+                  <div className="routing-meta-value">${opt.estimated_cost_gbp.toFixed(2)}</div>
                 </div>
                 <div className="routing-meta-item">
                   <div className="routing-meta-label">Est. Duration</div>
@@ -129,7 +130,7 @@ function OptimizerPanel({ optimizerOutput, featureVector }) {
   );
 }
 
-function AgreementIndicator({ reasonerText, reasonerConclusion }) {
+export function AgreementIndicator({ reasonerText, reasonerConclusion }) {
   const state = getAgreementState(reasonerText, reasonerConclusion);
   const words = AGREEMENT_TEXT[state] ?? 'TRACKING';
 
@@ -144,15 +145,14 @@ function AgreementIndicator({ reasonerText, reasonerConclusion }) {
   );
 }
 
-function ReasonerPanel({ reasonerText, reasonerConclusion, isStreaming }) {
+export function ReasonerPanel({ reasonerText, reasonerConclusion, isStreaming }) {
   const bodyRef = useRef(null);
 
+  // Strip the <conclusion> XML block before rendering
   const conclusionStart = reasonerText.indexOf('<conclusion>');
   const displayText = conclusionStart >= 0
     ? reasonerText.slice(0, conclusionStart).trimEnd()
     : reasonerText;
-
-  const paragraphs = displayText.split(/\n\n+/).filter(Boolean);
 
   useEffect(() => {
     if (bodyRef.current) {
@@ -163,7 +163,7 @@ function ReasonerPanel({ reasonerText, reasonerConclusion, isStreaming }) {
   const conclusionDecision = reasonerConclusion?.decision;
 
   return (
-    <div className="panel">
+    <div className="panel reasoner-panel-full">
       <div className="panel-header">
         <div className="panel-agent">
           <div className="panel-agent-name reasoner">Reasoner</div>
@@ -176,29 +176,65 @@ function ReasonerPanel({ reasonerText, reasonerConclusion, isStreaming }) {
           </div>
         )}
       </div>
-      <div className="panel-body" ref={bodyRef}>
-        {paragraphs.length === 0 && isStreaming && (
+
+      <div className="panel-body reasoner-md-body" ref={bodyRef}>
+        {displayText.length === 0 && isStreaming && (
           <div className="reasoner-waiting">
             <div className="phase1-spinner" style={{ borderTopColor: 'var(--purple)' }} />
             Initiating chain of thought…
           </div>
         )}
-        <div className="reasoner-text">
-          {paragraphs.map((para, i) => (
-            <p key={i}>
-              {para}
-              {isStreaming && i === paragraphs.length - 1 && (
-                <span className="reasoner-cursor" />
-              )}
-            </p>
-          ))}
-        </div>
+
+        {displayText.length > 0 && (
+          <div className="reasoner-markdown">
+            <ReactMarkdown
+              components={{
+                h2: ({ children }) => (
+                  <div className="rmd-h2">
+                    <span className="rmd-h2-icon">▸</span>
+                    <span className="rmd-h2-text">{children}</span>
+                  </div>
+                ),
+                p: ({ children }) => (
+                  <p className="rmd-p">{children}</p>
+                ),
+                ul: ({ children }) => <ul className="rmd-ul">{children}</ul>,
+                ol: ({ children }) => <ol className="rmd-ol">{children}</ol>,
+                li: ({ children }) => <li className="rmd-li">{children}</li>,
+                strong: ({ children }) => <strong className="rmd-strong">{children}</strong>,
+                em: ({ children }) => <em className="rmd-em">{children}</em>,
+                code: ({ children }) => <code className="rmd-code">{children}</code>,
+              }}
+            >
+              {displayText}
+            </ReactMarkdown>
+            {isStreaming && <span className="reasoner-cursor" />}
+          </div>
+        )}
 
         {conclusionDecision && (
-          <div className={`conclusion-chip ${conclusionDecision}`}>
+          <div className={`conclusion-chip ${conclusionDecision}`} style={{ marginTop: 12 }}>
             {conclusionDecision === 'confirm'  && '✓ CONFIRMED'}
             {conclusionDecision === 'qualify'  && '⚠ QUALIFIED'}
             {conclusionDecision === 'override' && '✕ OVERRIDE'}
+          </div>
+        )}
+
+        {reasonerConclusion?.flags?.length > 0 && (
+          <div className="reasoner-flags">
+            {reasonerConclusion.flags.map((flag, i) => (
+              <div key={i} className="reasoner-flag-item">
+                <span className="reasoner-flag-bullet">!</span>
+                <span>{flag}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {reasonerConclusion?.override_reason && (
+          <div className="reasoner-override-reason">
+            <div className="reasoner-override-label">Override Reason</div>
+            <div className="reasoner-override-text">{reasonerConclusion.override_reason}</div>
           </div>
         )}
       </div>

@@ -66,6 +66,11 @@ create a reliability risk for this order?
 - Cargo risk: Does the cargo type (fragile, refrigerated, hazardous) create \
 additional risk given zone performance history or vehicle type?
 
+Structure your chain-of-thought with clear section headings using "## " prefix \
+(e.g., "## SIGNAL ANALYSIS", "## BORDERLINE CHECK", "## GEOGRAPHIC FAIRNESS", \
+"## STRUCTURAL BLIND SPOTS", "## CONCLUSION"). This helps the operator quickly \
+navigate your reasoning.
+
 ## 5. CONCLUSION
 State one of three decisions, using exactly these labels:
 
@@ -106,7 +111,7 @@ def build_user_prompt(fv: dict, opt: dict) -> str:
         f"Order ID    : {fv['order_id']}",
         f"Cargo       : {fv['cargo_type']}  |  "
         f"Weight: {fv['weight_kg']} kg  |  "
-        f"Value: £{fv['order_value']:,.2f}  |  "
+        f"Value: ${fv['order_value']:,.2f}  |  "
         f"Priority: {fv['priority']}",
         f"Time window : {fv['time_window_hours']} hours from dispatch",
         "",
@@ -162,7 +167,7 @@ def build_user_prompt(fv: dict, opt: dict) -> str:
             f"    Proximity   : {ps:.3f} × {w3} = {ps * w3:.3f}",
             f"    Zone penalty: −{zpen:.3f}",
             f"    COMPOSITE   : {option['composite_score']:.3f}",
-            f"  Estimated cost: £{option['estimated_cost_gbp']:.2f}",
+            f"  Estimated cost: ${option['estimated_cost_gbp']:.2f}",
             f"  Estimated duration: {option['estimated_duration_hours']:.2f} h "
             f"(pickup ≈{eta} min + zone transit ≈{zp['avg_transit_hours']:.1f} h)",
             "",

@@ -19,28 +19,28 @@ def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 # Bounding boxes ordered innermost → outermost to resolve overlaps via first-match.
 # Each tuple: (zone_id, lat_min, lat_max, lon_min, lon_max)
 _ZONE_BOUNDS: list[tuple] = [
-    ("central",     51.490, 51.530, -0.180, -0.050),
-    ("east",        51.480, 51.545, -0.060,  0.100),
-    ("north",       51.530, 51.620, -0.200,  0.050),
-    ("south",       51.430, 51.490, -0.180,  0.050),
-    ("west",        51.470, 51.545, -0.400, -0.180),
-    ("outer_east",  51.430, 51.580,  0.100,  0.420),
-    ("outer_south", 51.300, 51.435, -0.250,  0.100),
-    ("outer_west",  51.430, 51.580, -0.600, -0.400),
-    ("outer_north", 51.600, 51.750, -0.400,  0.050),
+    ("central_sf",   37.785, 37.810, -122.425, -122.385),
+    ("soma_mission", 37.745, 37.785, -122.440, -122.380),
+    ("east_bay",     37.780, 37.890, -122.300, -122.190),
+    ("south_bay",    37.300, 37.420, -122.060, -121.800),
+    ("peninsula",    37.500, 37.690, -122.520, -122.350),
+    ("north_bay",    37.900, 38.110, -122.640, -122.380),
+    ("outer_east",   37.500, 37.780, -122.190, -121.900),
+    ("outer_south",  36.900, 37.300, -122.100, -121.500),
+    ("outer_west",   37.470, 37.650, -122.590, -122.520),
 ]
 
 # Centroids for nearest-neighbour fallback when a point misses all bounding boxes.
 _ZONE_CENTROIDS: dict[str, tuple[float, float]] = {
-    "central":     (51.511, -0.118),
-    "north":       (51.576, -0.085),
-    "east":        (51.515,  0.020),
-    "south":       (51.461, -0.085),
-    "west":        (51.505, -0.280),
-    "outer_east":  (51.510,  0.240),
-    "outer_south": (51.365, -0.080),
-    "outer_west":  (51.490, -0.500),
-    "outer_north": (51.660, -0.180),
+    "central_sf":   (37.795, -122.404),
+    "soma_mission": (37.768, -122.414),
+    "east_bay":     (37.834, -122.245),
+    "south_bay":    (37.360, -121.928),
+    "peninsula":    (37.594, -122.435),
+    "north_bay":    (38.005, -122.510),
+    "outer_east":   (37.640, -122.045),
+    "outer_south":  (37.100, -121.800),
+    "outer_west":   (37.560, -122.555),
 }
 
 
@@ -65,14 +65,14 @@ def classify_zone(lat: float, lon: float) -> str:
 def estimate_road_speed_kmh(zone_id: str) -> float:
     """Return a realistic average road speed for a zone (accounts for congestion)."""
     speeds = {
-        "central":     22.0,
-        "east":        28.0,
-        "north":       30.0,
-        "south":       28.0,
-        "west":        26.0,
-        "outer_east":  45.0,
-        "outer_south": 40.0,
-        "outer_west":  42.0,
-        "outer_north": 38.0,
+        "central_sf":   18.0,
+        "soma_mission": 22.0,
+        "east_bay":     28.0,
+        "south_bay":    32.0,
+        "peninsula":    26.0,
+        "north_bay":    35.0,
+        "outer_east":   40.0,
+        "outer_south":  45.0,
+        "outer_west":   38.0,
     }
     return speeds.get(zone_id, 30.0)

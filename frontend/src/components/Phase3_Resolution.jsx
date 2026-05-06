@@ -35,7 +35,7 @@ function ConvergenceCard({ resolution, featureVector, optimizerOutput }) {
           {finalOpt?.drv && <span>{finalOpt.drv.name} ({finalOpt.drv.vehicle_type})</span>}
           {routingOpt && (
             <>
-              <span className="mono">£{routingOpt.estimated_cost_gbp.toFixed(2)}</span>
+              <span className="mono">${routingOpt.estimated_cost_gbp.toFixed(2)}</span>
               <span className="mono">~{routingOpt.estimated_duration_hours.toFixed(1)}h</span>
             </>
           )}
@@ -69,7 +69,7 @@ function QualificationCard({ resolution, featureVector, optimizerOutput, reasone
           {finalOpt?.drv && <span>{finalOpt.drv.name} ({finalOpt.drv.vehicle_type})</span>}
           {routingOpt && (
             <>
-              <span className="mono">£{routingOpt.estimated_cost_gbp.toFixed(2)}</span>
+              <span className="mono">${routingOpt.estimated_cost_gbp.toFixed(2)}</span>
               <span className="mono">~{routingOpt.estimated_duration_hours.toFixed(1)}h</span>
             </>
           )}
@@ -119,7 +119,7 @@ function OverrideCard({ resolution, featureVector, optimizerOutput, reasonerConc
             {optOpt?.drv && <span>{optOpt.drv.name} ({optOpt.drv.vehicle_type})</span>}
             {optRouting && (
               <>
-                <span className="mono">£{optRouting.estimated_cost_gbp.toFixed(2)}</span>
+                <span className="mono">${optRouting.estimated_cost_gbp.toFixed(2)}</span>
                 <span className="mono">~{optRouting.estimated_duration_hours.toFixed(1)}h · Score {optRouting.composite_score.toFixed(3)}</span>
               </>
             )}
@@ -134,7 +134,7 @@ function OverrideCard({ resolution, featureVector, optimizerOutput, reasonerConc
             {reaOpt?.drv && <span>{reaOpt.drv.name} ({reaOpt.drv.vehicle_type})</span>}
             {reaRouting && (
               <>
-                <span className="mono">£{reaRouting.estimated_cost_gbp.toFixed(2)}</span>
+                <span className="mono">${reaRouting.estimated_cost_gbp.toFixed(2)}</span>
                 <span className="mono">~{reaRouting.estimated_duration_hours.toFixed(1)}h · Score {reaRouting.composite_score.toFixed(3)}</span>
               </>
             )}
