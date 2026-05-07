@@ -413,6 +413,47 @@ Each agent has a defined degraded mode:
 
 ---
 
+## Team Contributions
+
+> All commits were discussed together as a team before implementation. Every architectural decision, API contract, and design choice was a shared agreement — the attributions below reflect primary ownership, not isolated work.
+
+---
+
+### Kunal Sahni
+**Role: Project Architecture & Quality**
+
+- Authored the project concept and architecture thesis ([CONCEPT.md](CONCEPT.md)), establishing the two-agent deliberation model and the core argument around AI interpretability
+- Scaffolded the full monorepo structure and initial service layout in the first commit
+- Built the landing page and header UI components
+- Owned the test infrastructure — set up `pytest`, wrote the component test suite, and ensured all backend services were verifiably correct before integration
+
+---
+
+### Dan Lam
+**Role: Backend Scoring, Deliberation UI & DevOps**
+
+- Built and calibrated the Optimizer Agent's reward function — timeliness, cost efficiency, proximity scoring, and zone risk penalty
+- Implemented the demo scenario engine (`demo_scenarios.py`) including the scenario matching and estimated duration calculations
+- Built the split-panel deliberation interface — animated signal weights, parallel Optimizer/Reasoner views, the agreement indicator, and convergence/override resolution states
+- Implemented the SSE streaming layer on the frontend (`useDeliberation.js`, `sseParser.js`)
+- Finalized Docker Compose containerization across all five services with health checks and `.env`-based API key configuration
+- Deployed and configured the production environment on **AWS EC2** at [alro.dan-cmpe272.com](https://alro.dan-cmpe272.com)
+- Wrote the presentation overview and demo narrative
+
+---
+
+### Dhruv Verma
+**Role: Reasoning Layer, Map & Frontend UX**
+
+- Migrated the full dataset from London to Bay Area geography, authoring the ERP seed data with nine Bay Area zones, warehouse coordinates, and driver profiles
+- Built the Reasoner Agent's chain-of-thought reasoning pipeline (`reasoning.py`) — prompt engineering, fairness constraint implementation, and the resolution layer
+- Integrated the Intake Agent's order enrichment logic including multi-leg route support
+- Built the interactive Leaflet map with real road-based route geometry via OpenRouteService
+- Implemented resizable simulation panels, manual order UX, and natural language order input
+- Drove the UI overhaul that unified map-first layout with the three-phase deliberation flow
+
+---
+
 ## License
 
 MIT
