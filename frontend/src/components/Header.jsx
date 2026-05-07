@@ -1,16 +1,16 @@
-export default function Header({ activeScenario, phase, onReset }) {
+export default function Header({ activeScenario, phase, onReset, onHome }) {
   const isActive = phase !== 'select';
 
   return (
     <header className="header">
       <div className="header-inner">
-        <div className="header-wordmark">
+        <button className="header-home-btn" onClick={onHome} type="button" title="Back to home">
           <div className="header-dot" />
           <div>
             <div className="header-title">ALRO</div>
             <div className="header-subtitle">Autonomous Logistics &amp; Routing Optimizer</div>
           </div>
-        </div>
+        </button>
 
         {isActive && activeScenario && (
           <>

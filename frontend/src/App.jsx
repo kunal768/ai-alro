@@ -8,6 +8,7 @@ import ScenarioSelector from './components/ScenarioSelector.jsx';
 import Phase1_Signals from './components/Phase1_Signals.jsx';
 import { OptimizerPanel, ReasonerPanel, AgreementIndicator } from './components/Phase2_Deliberation.jsx';
 import Phase3_Resolution from './components/Phase3_Resolution.jsx';
+import LandingPage from './components/LandingPage.jsx';
 
 const LEFT_MIN = 320;
 const LEFT_MAX = 620;
@@ -33,6 +34,8 @@ function widthToScale(width, baseline) {
 }
 
 export default function App() {
+  const [showLanding, setShowLanding] = useState(true);
+
   const {
     phase,
     activeScenario,
@@ -110,6 +113,10 @@ export default function App() {
     });
   }, [leftWidth, rightWidth]);
 
+  if (showLanding) {
+    return <LandingPage onLaunch={() => setShowLanding(false)} />;
+  }
+
   return (
     <div className="app-shell">
       {/* Fixed map background — always mounted */}
@@ -121,7 +128,7 @@ export default function App() {
       <div className="app-layout">
         {/* Top bar: header + phase track */}
         <div className="app-top-bar">
-          <Header activeScenario={activeScenario} phase={phase} onReset={reset} />
+          <Header activeScenario={activeScenario} phase={phase} onReset={reset} onHome={() => setShowLanding(true)} />
           {phase !== 'select' && <PhaseTrack phase={phase} />}
           {isDegraded && (phase === 'deliberation' || phase === 'resolution') && (
             <DegradedBanner errorState={errorState} />
